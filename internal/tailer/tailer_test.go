@@ -29,9 +29,12 @@ func TestTailer_NewLines(t *testing.T) {
 	}
 	defer tailer.Stop()
 
+	// Give tailer a moment to start watching
+	time.Sleep(100 * time.Millisecond)
+
 	// Write a line
-	f.WriteString("line1\n")
-	f.Sync()
+	_, _ = f.WriteString("line1\n")
+	_ = f.Sync()
 
 	// Verify reception
 	select {
