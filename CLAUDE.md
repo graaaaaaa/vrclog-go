@@ -11,18 +11,27 @@ vrclog-go is a Go library and CLI for parsing and monitoring VRChat PC log files
 ```bash
 # Build
 make build                    # Build CLI binary
-go build -o vrclog ./cmd/vrclog
+make build-windows            # Cross-compile for Windows
 
 # Test
 go test ./...                 # Run all tests
 go test -v ./internal/parser  # Run specific package tests
+go test -run TestName ./...   # Run single test by name
 go test -race ./...           # With race detector
+make test-cover               # Generate coverage report
 
-# Lint
-make lint                     # Requires golangci-lint
+# Lint (requires golangci-lint v2)
+make lint                     # Run golangci-lint
+make fmt-check                # Check formatting (used in CI)
 
 # Format
 go fmt ./...
+
+# Other
+make tidy                     # go mod tidy
+make vet                      # go vet
+make clean                    # Remove build artifacts
+make release-snapshot         # Test goreleaser locally
 ```
 
 ## Architecture
@@ -78,3 +87,10 @@ Example lines:
 2024.01.15 23:59:59 Log        -  [Behaviour] OnPlayerLeft TestUser
 2024.01.15 23:59:59 Log        -  [Behaviour] Entering Room: World Name
 ```
+
+## Linting
+
+This project uses golangci-lint v2 with configuration in `.golangci.yml`. The config:
+- Uses standard default linters (errcheck, govet, ineffassign, staticcheck, unused)
+- Excludes errcheck for test files
+- Excludes errcheck for common defer patterns (Close, Sync)
