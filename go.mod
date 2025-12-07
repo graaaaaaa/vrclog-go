@@ -1,8 +1,8 @@
 module github.com/vrclog/vrclog-go
 
-go 1.23
+go 1.25
 
-toolchain go1.25.3
+toolchain go1.25.5
 
 require (
 	github.com/nxadm/tail v1.4.11

@@ -214,7 +214,7 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 	}
 	rotationTicker := time.NewTicker(pollInterval)
 	defer rotationTicker.Stop()
-	defer t.Stop()
+	defer func() { _ = t.Stop() }()
 
 	currentFile := logFile
 
@@ -242,7 +242,7 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 			}
 			if newFile != currentFile {
 				// New log file found, switch to it
-				t.Stop()
+				_ = t.Stop()
 				cfg := tailer.DefaultConfig()
 				cfg.FromStart = true // Read new file from start
 				newTailer, err := tailer.New(ctx, newFile, cfg)

@@ -7,9 +7,6 @@ const timestampLayout = "2006.01.02 15:04:05"
 
 // Compiled regex patterns for event detection.
 var (
-	// Matches: "2024.01.15 23:59:59"
-	timestampPattern = regexp.MustCompile(`^(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2})`)
-
 	// Matches: "[Behaviour] OnPlayerJoined DisplayName"
 	// Matches: "[Behaviour] OnPlayerJoined DisplayName (usr_xxx)"
 	// Captures: (1) display name, (2) user ID (optional)

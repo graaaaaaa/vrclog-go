@@ -1,0 +1,29 @@
+# golangci-lint configuration
+# https://golangci-lint.run/docs/configuration/file/
+
+version: "2"
+
+linters:
+  # Use default linters (errcheck, govet, ineffassign, staticcheck, unused)
+  default: standard
+
+  exclusions:
+    # Exclude errcheck in test files (common pattern)
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+    # Enable common exclusion presets
+    presets:
+      - std-error-handling
+      - common-false-positives
+
+linters-settings:
+  errcheck:
+    # Don't check errors from Close, Stop, Sync in defer statements
+    exclude-functions:
+      - (*os.File).Close
+      - (*os.File).Sync
+      - (io.Closer).Close
+      - (*github.com/vrclog/vrclog-go/internal/tailer.Tailer).Stop
+      - (*github.com/vrclog/vrclog-go/pkg/vrclog.Watcher).Close
