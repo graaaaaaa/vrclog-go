@@ -69,7 +69,37 @@ func init() {
 		"Replay events since timestamp (RFC3339 format, e.g., 2024-01-15T12:00:00Z)")
 }
 
+// validFormats lists all valid output formats.
+var validFormats = map[string]bool{
+	"jsonl":  true,
+	"pretty": true,
+}
+
+// validEventTypes lists all valid event types.
+var validEventTypes = map[string]bool{
+	string(vrclog.EventPlayerJoin): true,
+	string(vrclog.EventPlayerLeft): true,
+	string(vrclog.EventWorldJoin):  true,
+}
+
 func runTail(cmd *cobra.Command, args []string) error {
+	// Validate format
+	if !validFormats[format] {
+		return fmt.Errorf("invalid format %q: must be one of: jsonl, pretty", format)
+	}
+
+	// Validate event types
+	for _, t := range eventTypes {
+		if !validEventTypes[t] {
+			return fmt.Errorf("invalid event type %q: must be one of: world_join, player_join, player_left", t)
+		}
+	}
+
+	// Validate replay options are not both specified
+	if replayLast >= 0 && replaySince != "" {
+		return fmt.Errorf("--replay-last and --replay-since cannot be used together")
+	}
+
 	// Setup context with signal handling
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
@@ -145,9 +175,8 @@ func runTail(cmd *cobra.Command, args []string) error {
 			if !ok {
 				return nil // Channel closed
 			}
-			if verbose {
-				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
-			}
+			// Always output errors to stderr
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 
 		case <-ctx.Done():
 			return nil

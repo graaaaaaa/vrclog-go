@@ -186,6 +186,135 @@ func TestWatcher_Close(t *testing.T) {
 	}
 }
 
+func TestWatcher_CloseStopsGoroutine(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
+		LogDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	events, _ := watcher.Watch(ctx)
+
+	// Give goroutine time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should stop the goroutine and close channels
+	done := make(chan struct{})
+	go func() {
+		watcher.Close()
+		close(done)
+	}()
+
+	// Verify Close() returns (doesn't hang)
+	select {
+	case <-done:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() timed out")
+	}
+
+	// Verify channels are closed
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Error("expected events channel to be closed")
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for events channel to close")
+	}
+}
+
+func TestWatcher_WatchAfterClose(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
+		LogDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Close before watching
+	watcher.Close()
+
+	// Watch after close should return closed channels
+	ctx := context.Background()
+	events, errs := watcher.Watch(ctx)
+
+	// Channels should be immediately closed
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Error("expected events channel to be closed")
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for events channel")
+	}
+
+	select {
+	case _, ok := <-errs:
+		if ok {
+			t.Error("expected errs channel to be closed")
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for errs channel")
+	}
+}
+
+func TestWatcher_WatchCalledTwice(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
+		LogDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+
+	ctx := context.Background()
+	events1, _ := watcher.Watch(ctx)
+	events2, _ := watcher.Watch(ctx)
+
+	// Second Watch should return closed channels (not allowed to watch twice)
+	select {
+	case _, ok := <-events2:
+		if ok {
+			t.Error("expected second events channel to be closed")
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for second events channel")
+	}
+
+	// First events channel should still be open
+	// (until Close() or context cancel)
+	select {
+	case <-events1:
+		t.Error("first events channel should not have received anything yet")
+	case <-time.After(100 * time.Millisecond):
+		// Expected - no events yet
+	}
+}
+
 func TestWatchOptions_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -216,6 +345,33 @@ func TestWatchOptions_Validate(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "negative LastN is invalid",
+			opts: vrclog.WatchOptions{
+				Replay: vrclog.ReplayConfig{
+					Mode:  vrclog.ReplayLastN,
+					LastN: -1,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "ReplaySinceTime with zero Since is invalid",
+			opts: vrclog.WatchOptions{
+				Replay: vrclog.ReplayConfig{
+					Mode: vrclog.ReplaySinceTime,
+					// Since is zero
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative PollInterval is invalid",
+			opts: vrclog.WatchOptions{
+				PollInterval: -time.Second,
+			},
+			wantErr: true,
 		},
 	}
 
@@ -349,5 +505,103 @@ func TestWatcher_ReplayFromStart(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for existing event")
+	}
+}
+
+func TestWatcher_ReplayLastN(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	// Write 5 events
+	content := `2024.01.15 12:00:00 Log        -  [Behaviour] OnPlayerJoined User1
+2024.01.15 12:00:01 Log        -  [Behaviour] OnPlayerJoined User2
+2024.01.15 12:00:02 Log        -  [Behaviour] OnPlayerJoined User3
+2024.01.15 12:00:03 Log        -  [Behaviour] OnPlayerJoined User4
+2024.01.15 12:00:04 Log        -  [Behaviour] OnPlayerJoined User5
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
+		LogDir: dir,
+		Replay: vrclog.ReplayConfig{
+			Mode:  vrclog.ReplayLastN,
+			LastN: 2, // Only last 2 events
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	events, errs := watcher.Watch(ctx)
+
+	// Should receive last 2 events (User4 and User5)
+	expected := []string{"User4", "User5"}
+	for i, want := range expected {
+		select {
+		case event := <-events:
+			if event.PlayerName != want {
+				t.Errorf("event %d: got player %q, want %q", i, event.PlayerName, want)
+			}
+		case err := <-errs:
+			t.Fatalf("unexpected error: %v", err)
+		case <-ctx.Done():
+			t.Fatalf("timeout waiting for event %d", i)
+		}
+	}
+}
+
+func TestWatcher_ReplaySinceTime(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	// Write events with different timestamps
+	content := `2024.01.15 12:00:00 Log        -  [Behaviour] OnPlayerJoined OldUser1
+2024.01.15 12:00:01 Log        -  [Behaviour] OnPlayerJoined OldUser2
+2024.01.15 14:00:00 Log        -  [Behaviour] OnPlayerJoined NewUser1
+2024.01.15 14:00:01 Log        -  [Behaviour] OnPlayerJoined NewUser2
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Replay since 13:00 (should get NewUser1 and NewUser2)
+	since, _ := time.ParseInLocation("2006.01.02 15:04:05", "2024.01.15 13:00:00", time.Local)
+
+	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
+		LogDir: dir,
+		Replay: vrclog.ReplayConfig{
+			Mode:  vrclog.ReplaySinceTime,
+			Since: since,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	events, errs := watcher.Watch(ctx)
+
+	// Should receive only events after 13:00 (NewUser1, NewUser2)
+	expected := []string{"NewUser1", "NewUser2"}
+	for i, want := range expected {
+		select {
+		case event := <-events:
+			if event.PlayerName != want {
+				t.Errorf("event %d: got player %q, want %q", i, event.PlayerName, want)
+			}
+		case err := <-errs:
+			t.Fatalf("unexpected error: %v", err)
+		case <-ctx.Done():
+			t.Fatalf("timeout waiting for event %d", i)
+		}
 	}
 }

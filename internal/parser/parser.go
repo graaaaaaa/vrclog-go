@@ -48,12 +48,23 @@ func Parse(line string) (*event.Event, error) {
 	return nil, nil
 }
 
+// timestampLen is the length of VRChat log timestamps ("2024.01.15 23:59:59")
+const timestampLen = 19
+
 func parseTimestamp(line string) (time.Time, error) {
-	match := timestampPattern.FindStringSubmatch(line)
-	if match == nil {
-		return time.Time{}, fmt.Errorf("no timestamp found")
+	// VRChat log timestamps are always 19 characters at the start
+	// Format: "2024.01.15 23:59:59"
+	if len(line) < timestampLen {
+		return time.Time{}, fmt.Errorf("line too short for timestamp")
 	}
-	return time.ParseInLocation(timestampLayout, match[1], time.Local)
+
+	// Quick validation: check for expected format markers
+	ts := line[:timestampLen]
+	if ts[4] != '.' || ts[7] != '.' || ts[10] != ' ' || ts[13] != ':' || ts[16] != ':' {
+		return time.Time{}, fmt.Errorf("invalid timestamp format")
+	}
+
+	return time.ParseInLocation(timestampLayout, ts, time.Local)
 }
 
 func parsePlayerJoin(line string, ts time.Time) *event.Event {

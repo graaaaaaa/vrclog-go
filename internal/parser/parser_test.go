@@ -63,6 +63,15 @@ func TestParse(t *testing.T) {
 				PlayerName: "TestUser",
 			},
 		},
+		{
+			name:  "player left with special char name",
+			input: "2024.01.15 23:59:59 Log        -  [Behaviour] OnPlayerLeft (Special) Name",
+			want: &event.Event{
+				Type:       event.PlayerLeft,
+				Timestamp:  mustParseTime("2024.01.15 23:59:59"),
+				PlayerName: "(Special) Name",
+			},
+		},
 
 		// World join events
 		{

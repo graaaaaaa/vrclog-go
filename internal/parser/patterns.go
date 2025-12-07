@@ -18,10 +18,10 @@ var (
 	)
 
 	// Matches: "[Behaviour] OnPlayerLeft DisplayName"
-	// Excludes: "OnPlayerLeftRoom"
+	// Note: OnPlayerLeftRoom is handled by exclusionPatterns
 	// Captures: (1) display name
 	playerLeftPattern = regexp.MustCompile(
-		`\[Behaviour\] OnPlayerLeft ([^(].*)$`,
+		`\[Behaviour\] OnPlayerLeft (.+)$`,
 	)
 
 	// Matches: "[Behaviour] Entering Room: World Name"
