@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+# 同一タグのリリースをシリアライズ
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      # ─────────────────────────────────────────────────────────
+      # チェックアウト（全履歴取得）
+      # ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ─────────────────────────────────────────────────────────
+      # Go セットアップ
+      # ─────────────────────────────────────────────────────────
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      # ─────────────────────────────────────────────────────────
+      # リリース前のテスト（安全のため）
+      # ─────────────────────────────────────────────────────────
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build verification
+        run: go build -v ./cmd/vrclog
+
+      # ─────────────────────────────────────────────────────────
+      # GoReleaser 実行
+      # ─────────────────────────────────────────────────────────
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

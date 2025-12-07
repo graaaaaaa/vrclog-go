@@ -1,4 +1,4 @@
-.PHONY: all build test test-race test-cover lint clean release-snapshot help
+.PHONY: all build test test-race test-cover lint fmt fmt-check vet tidy clean release-snapshot help
 
 # Default target
 all: lint test build
@@ -29,6 +29,11 @@ test-cover:
 lint:
 	@which golangci-lint > /dev/null || (echo "golangci-lint not found. Install: https://golangci-lint.run/usage/install/" && exit 1)
 	golangci-lint run
+
+# Check code formatting (for CI)
+fmt-check:
+	@echo "Checking code formatting..."
+	@files=$$(gofmt -l .); test -z "$$files" || (echo "Code is not formatted. Run 'make fmt' to fix:"; echo "$$files"; exit 1)
 
 # Format code
 fmt:
@@ -64,6 +69,7 @@ help:
 	@echo "  test-cover      - Run tests with coverage report"
 	@echo "  lint            - Run golangci-lint"
 	@echo "  fmt             - Format code"
+	@echo "  fmt-check       - Check formatting (for CI)"
 	@echo "  vet             - Run go vet"
 	@echo "  tidy            - Tidy dependencies"
 	@echo "  clean           - Clean build artifacts"

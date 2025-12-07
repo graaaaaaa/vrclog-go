@@ -1,0 +1,54 @@
+# Dependabot configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  # ───────────────────────────────────────────────────────────
+  # Go モジュール
+  # ───────────────────────────────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    open-pull-requests-limit: 5
+    groups:
+      # minor と patch をグループ化
+      go-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    # major は個別 PR（デフォルト動作）
+
+  # ───────────────────────────────────────────────────────────
+  # GitHub Actions
+  # ───────────────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    open-pull-requests-limit: 5
+    groups:
+      # Actions の minor と patch をグループ化
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
