@@ -45,72 +45,11 @@ type ReplayConfig struct {
 	Since time.Time // For ReplaySinceTime
 }
 
-// WatchOptions configures log watching behavior.
-// The zero value is valid and uses sensible defaults.
-type WatchOptions struct {
-	// LogDir specifies the VRChat log directory.
-	// If empty, auto-detects from default Windows locations.
-	// Can also be set via VRCLOG_LOGDIR environment variable.
-	LogDir string
-
-	// PollInterval is how often to check for new/rotated log files.
-	// Default: 2 seconds.
-	PollInterval time.Duration
-
-	// IncludeRawLine includes the original log line in Event.RawLine.
-	// Default: false.
-	IncludeRawLine bool
-
-	// Replay configures replay behavior for existing log lines.
-	// Default: ReplayNone (only new lines).
-	Replay ReplayConfig
-
-	// MaxReplayLines is the maximum lines to replay in ReplayLastN mode.
-	// 0 uses default (10000). Set to -1 for unlimited (not recommended).
-	MaxReplayLines int
-
-	// Logger is the slog logger for debug output.
-	// If nil, logging is disabled.
-	Logger *slog.Logger
-}
-
-// Validate checks for invalid option combinations.
-func (o WatchOptions) Validate() error {
-	// Validate ReplayLastN
-	if o.Replay.Mode == ReplayLastN && o.Replay.LastN < 0 {
-		return fmt.Errorf("replay LastN must be non-negative, got %d", o.Replay.LastN)
-	}
-
-	// Validate ReplayLastN against maximum limit
-	if o.Replay.Mode == ReplayLastN {
-		maxLines := o.MaxReplayLines
-		if maxLines == 0 {
-			maxLines = DefaultMaxReplayLastN
-		}
-		if maxLines > 0 && o.Replay.LastN > maxLines {
-			return fmt.Errorf("replay LastN (%d) exceeds maximum of %d", o.Replay.LastN, maxLines)
-		}
-	}
-
-	// Validate ReplaySinceTime
-	if o.Replay.Mode == ReplaySinceTime && o.Replay.Since.IsZero() {
-		return fmt.Errorf("replay Since must be set when mode is ReplaySinceTime")
-	}
-
-	// Validate PollInterval
-	if o.PollInterval < 0 {
-		return fmt.Errorf("poll interval must be non-negative, got %v", o.PollInterval)
-	}
-
-	return nil
-}
-
 // Watcher monitors VRChat log files.
 type Watcher struct {
-	opts   WatchOptions
+	cfg    watchConfig // internal configuration (immutable after creation)
 	logDir string
 	log    *slog.Logger
-	filter *compiledFilter // event type filter
 
 	mu       sync.Mutex
 	closed   bool
@@ -121,34 +60,6 @@ type Watcher struct {
 
 // discardLogger returns a logger that discards all output.
 var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
-
-// NewWatcher creates a watcher.
-// Validates options and checks log directory existence.
-// Does NOT start goroutines (cheap to call).
-// Returns error for invalid options or missing log directory.
-func NewWatcher(opts WatchOptions) (*Watcher, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid options: %w", err)
-	}
-
-	// Find log directory
-	logDir, err := logfinder.FindLogDir(opts.LogDir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Initialize logger (use discard logger if not provided)
-	log := opts.Logger
-	if log == nil {
-		log = discardLogger
-	}
-
-	return &Watcher{
-		opts:   opts,
-		logDir: logDir,
-		log:    log,
-	}, nil
-}
 
 // Watch starts watching and returns channels.
 // Starts internal goroutines here.
@@ -225,11 +136,11 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 	cfg := tailer.DefaultConfig()
 	// For ReplayFromStart and ReplaySinceTime, read from start
 	// For ReplayLastN, we handle it specially below
-	cfg.FromStart = w.opts.Replay.Mode == ReplayFromStart || w.opts.Replay.Mode == ReplaySinceTime
+	cfg.FromStart = w.cfg.replay.Mode == ReplayFromStart || w.cfg.replay.Mode == ReplaySinceTime
 
 	// Handle ReplayLastN: read last N lines first, then tail from end
-	if w.opts.Replay.Mode == ReplayLastN && w.opts.Replay.LastN > 0 {
-		w.log.Debug("replaying last N lines", "n", w.opts.Replay.LastN, "path", logFile)
+	if w.cfg.replay.Mode == ReplayLastN && w.cfg.replay.LastN > 0 {
+		w.log.Debug("replaying last N lines", "n", w.cfg.replay.LastN, "path", logFile)
 		if err := w.replayLastN(ctx, logFile, eventCh, errCh); err != nil {
 			sendError(ctx, errCh, &WatchError{Op: WatchOpReplay, Path: logFile, Err: err})
 		}
@@ -244,12 +155,8 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 	}
 	w.log.Debug("started tailing", "path", logFile, "from_start", cfg.FromStart)
 
-	// Set poll interval for log rotation check
-	pollInterval := w.opts.PollInterval
-	if pollInterval <= 0 {
-		pollInterval = 2 * time.Second // Default
-	}
-	rotationTicker := time.NewTicker(pollInterval)
+	// Set poll interval for log rotation check (defaultWatchConfig guarantees valid interval)
+	rotationTicker := time.NewTicker(w.cfg.pollInterval)
 	defer rotationTicker.Stop()
 	defer func() { _ = t.Stop() }()
 
@@ -306,17 +213,17 @@ func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- E
 	}
 
 	// Filter by replay time if needed (do this early before other processing)
-	if w.opts.Replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.opts.Replay.Since) {
+	if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
 		return
 	}
 
 	// Apply event type filter (do this before copying RawLine for efficiency)
-	if w.filter != nil && !w.filter.Allows(EventType(ev.Type)) {
+	if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
 		return
 	}
 
 	// Include raw line if requested
-	if w.opts.IncludeRawLine {
+	if w.cfg.includeRawLine {
 		ev.RawLine = line
 	}
 
@@ -329,7 +236,7 @@ func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- E
 
 // replayLastN reads and processes the last N lines from the log file.
 func (w *Watcher) replayLastN(ctx context.Context, logFile string, eventCh chan<- Event, errCh chan<- error) error {
-	lines, err := readLastNLines(logFile, w.opts.Replay.LastN)
+	lines, err := readLastNLines(logFile, w.cfg.replay.LastN)
 	if err != nil {
 		return err
 	}
@@ -456,19 +363,6 @@ func sendError(ctx context.Context, errCh chan<- error, err error) {
 	}
 }
 
-// Watch is a convenience function that creates a watcher and starts watching.
-// Returns error immediately for initialization failures or if watch fails to start.
-//
-// Deprecated: Use WatchWithOptions for new code. This function is maintained
-// for backward compatibility and will be removed in v1.0.
-func Watch(ctx context.Context, opts WatchOptions) (<-chan Event, <-chan error, error) {
-	w, err := NewWatcher(opts)
-	if err != nil {
-		return nil, nil, err
-	}
-	return w.Watch(ctx)
-}
-
 // WatchWithOptions creates a watcher using functional options and starts watching.
 // This is the preferred way to create and start a watcher.
 //
@@ -504,9 +398,8 @@ func WatchWithOptions(ctx context.Context, opts ...WatchOption) (<-chan Event, <
 func NewWatcherWithOptions(opts ...WatchOption) (*Watcher, error) {
 	cfg := applyWatchOptions(opts)
 
-	// Convert to WatchOptions for validation
-	watchOpts := cfg.toWatchOptions()
-	if err := watchOpts.Validate(); err != nil {
+	// Validate configuration
+	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid options: %w", err)
 	}
 
@@ -523,9 +416,8 @@ func NewWatcherWithOptions(opts ...WatchOption) (*Watcher, error) {
 	}
 
 	return &Watcher{
-		opts:   watchOpts,
+		cfg:    *cfg, // copy to ensure immutability
 		logDir: logDir,
 		log:    log,
-		filter: cfg.filter,
 	}, nil
 }

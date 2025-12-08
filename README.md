@@ -277,19 +277,6 @@ if err != nil {
 // event == nil && err == nil means line is not a recognized event
 ```
 
-### Legacy API (Deprecated)
-
-The struct-based API is still available for backward compatibility but is deprecated:
-
-```go
-// Deprecated: Use WatchWithOptions instead
-events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{
-    LogDir:         "",
-    PollInterval:   5 * time.Second,
-    IncludeRawLine: true,
-})
-```
-
 ## Event Types
 
 | Type | Description | Fields |

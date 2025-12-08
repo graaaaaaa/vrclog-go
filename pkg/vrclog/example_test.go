@@ -9,13 +9,15 @@ import (
 	"github.com/vrclog/vrclog-go/pkg/vrclog"
 )
 
-// ExampleWatch demonstrates basic usage of the Watch convenience function.
-func ExampleWatch() {
+// ExampleWatchWithOptions demonstrates basic usage of the WatchWithOptions convenience function.
+func ExampleWatchWithOptions() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start watching with default options (auto-detect log directory)
-	events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{})
+	// Start watching with functional options (auto-detect log directory)
+	events, errs, err := vrclog.WatchWithOptions(ctx,
+		vrclog.WithIncludeTypes(vrclog.EventPlayerJoin, vrclog.EventPlayerLeft),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,21 +48,18 @@ func ExampleWatch() {
 	}
 }
 
-// ExampleNewWatcher demonstrates advanced usage with explicit Watcher control.
-func ExampleNewWatcher() {
+// ExampleNewWatcherWithOptions demonstrates advanced usage with explicit Watcher control.
+func ExampleNewWatcherWithOptions() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Create watcher with custom options
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir:         "", // auto-detect
-		PollInterval:   5 * time.Second,
-		IncludeRawLine: true,
-		Replay: vrclog.ReplayConfig{
-			Mode:  vrclog.ReplayLastN,
-			LastN: 100,
-		},
-	})
+	// Create watcher with functional options
+	watcher, err := vrclog.NewWatcherWithOptions(
+		// LogDir auto-detected if not specified
+		vrclog.WithPollInterval(5*time.Second),
+		vrclog.WithIncludeRawLine(true),
+		vrclog.WithReplayLastN(100),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}

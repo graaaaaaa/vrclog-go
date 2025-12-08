@@ -277,19 +277,6 @@ if err != nil {
 // event == nil && err == nil の場合、認識されないイベント行
 ```
 
-### 旧API（非推奨）
-
-後方互換性のため、構造体ベースのAPIも利用可能ですが非推奨です:
-
-```go
-// 非推奨: WatchWithOptions を使用してください
-events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{
-    LogDir:         "",
-    PollInterval:   5 * time.Second,
-    IncludeRawLine: true,
-})
-```
-
 ## イベントタイプ
 
 | タイプ | 説明 | フィールド |
