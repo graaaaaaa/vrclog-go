@@ -6,6 +6,10 @@ VRChatのログファイルを解析・監視するGoライブラリ＆CLIツー
 
 [English version](README.md)
 
+## API安定性
+
+> **注意**: このライブラリはpre-1.0（`v0.x.x`）です。マイナーバージョン間でAPIが予告なく変更される可能性があります。安定性が必要な場合は特定のバージョンに固定してください。
+
 ## 特徴
 
 - VRChatログファイルを構造化されたイベントに変換
@@ -275,19 +279,6 @@ if err != nil {
     fmt.Printf("プレイヤー参加: %s\n", event.PlayerName)
 }
 // event == nil && err == nil の場合、認識されないイベント行
-```
-
-### 旧API（非推奨）
-
-後方互換性のため、構造体ベースのAPIも利用可能ですが非推奨です:
-
-```go
-// 非推奨: WatchWithOptions を使用してください
-events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{
-    LogDir:         "",
-    PollInterval:   5 * time.Second,
-    IncludeRawLine: true,
-})
 ```
 
 ## イベントタイプ

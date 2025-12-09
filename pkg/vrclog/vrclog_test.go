@@ -54,19 +54,7 @@ func TestParseLine(t *testing.T) {
 	}
 }
 
-func TestNewWatcher_InvalidLogDir(t *testing.T) {
-	_, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: "/nonexistent/path",
-	})
-	if err == nil {
-		t.Error("NewWatcher() expected error for invalid log dir")
-	}
-	if !errors.Is(err, vrclog.ErrLogDirNotFound) {
-		t.Errorf("NewWatcher() error = %v, want %v", err, vrclog.ErrLogDirNotFound)
-	}
-}
-
-func TestNewWatcher_ValidLogDir(t *testing.T) {
+func TestNewWatcherWithOptions_ValidLogDir(t *testing.T) {
 	dir := t.TempDir()
 	// Create a log file
 	logFile := filepath.Join(dir, "output_log_test.txt")
@@ -74,11 +62,11 @@ func TestNewWatcher_ValidLogDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
-		t.Fatalf("NewWatcher() error = %v", err)
+		t.Fatalf("NewWatcherWithOptions() error = %v", err)
 	}
 	defer watcher.Close()
 }
@@ -93,9 +81,9 @@ func TestWatcher_ReceivesEvents(t *testing.T) {
 	}
 	defer f.Close()
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +128,9 @@ func TestWatcher_ContextCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,9 +164,9 @@ func TestWatcher_Close(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,9 +188,9 @@ func TestWatcher_CloseStopsGoroutine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,9 +238,9 @@ func TestWatcher_WatchAfterClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,9 +274,9 @@ func TestWatcher_WatchCalledTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,61 +313,63 @@ func TestWatcher_WatchCalledTwice(t *testing.T) {
 	}
 }
 
-func TestWatchOptions_Validate(t *testing.T) {
+func TestNewWatcherWithOptions_Validation(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	tests := []struct {
 		name    string
-		opts    vrclog.WatchOptions
+		opts    []vrclog.WatchOption
 		wantErr bool
 	}{
 		{
-			name:    "zero value is valid",
-			opts:    vrclog.WatchOptions{},
+			name:    "default options are valid",
+			opts:    []vrclog.WatchOption{vrclog.WithLogDir(dir)},
 			wantErr: false,
 		},
 		{
 			name: "ReplayLastN is valid",
-			opts: vrclog.WatchOptions{
-				Replay: vrclog.ReplayConfig{
-					Mode:  vrclog.ReplayLastN,
-					LastN: 100,
-				},
+			opts: []vrclog.WatchOption{
+				vrclog.WithLogDir(dir),
+				vrclog.WithReplayLastN(100),
 			},
 			wantErr: false,
 		},
 		{
 			name: "ReplaySinceTime is valid",
-			opts: vrclog.WatchOptions{
-				Replay: vrclog.ReplayConfig{
-					Mode:  vrclog.ReplaySinceTime,
-					Since: time.Now().Add(-time.Hour),
-				},
+			opts: []vrclog.WatchOption{
+				vrclog.WithLogDir(dir),
+				vrclog.WithReplaySinceTime(time.Now().Add(-time.Hour)),
 			},
 			wantErr: false,
 		},
 		{
 			name: "negative LastN is invalid",
-			opts: vrclog.WatchOptions{
-				Replay: vrclog.ReplayConfig{
-					Mode:  vrclog.ReplayLastN,
-					LastN: -1,
-				},
+			opts: []vrclog.WatchOption{
+				vrclog.WithLogDir(dir),
+				vrclog.WithReplayLastN(-1),
 			},
 			wantErr: true,
 		},
 		{
 			name: "ReplaySinceTime with zero Since is invalid",
-			opts: vrclog.WatchOptions{
-				Replay: vrclog.ReplayConfig{
+			opts: []vrclog.WatchOption{
+				vrclog.WithLogDir(dir),
+				vrclog.WithReplay(vrclog.ReplayConfig{
 					Mode: vrclog.ReplaySinceTime,
 					// Since is zero
-				},
+				}),
 			},
 			wantErr: true,
 		},
 		{
 			name: "negative PollInterval is invalid",
-			opts: vrclog.WatchOptions{
-				PollInterval: -time.Second,
+			opts: []vrclog.WatchOption{
+				vrclog.WithLogDir(dir),
+				vrclog.WithPollInterval(-time.Second),
 			},
 			wantErr: true,
 		},
@@ -387,52 +377,14 @@ func TestWatchOptions_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.opts.Validate()
+			watcher, err := vrclog.NewWatcherWithOptions(tt.opts...)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewWatcherWithOptions() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if watcher != nil {
+				watcher.Close()
 			}
 		})
-	}
-}
-
-func TestWatch_ConvenienceFunction(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "output_log_test.txt")
-
-	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{
-		LogDir: dir,
-	})
-	if err != nil {
-		t.Fatalf("Watch() error = %v", err)
-	}
-
-	// Channels should be returned
-	if events == nil {
-		t.Error("Watch() events channel is nil")
-	}
-	if errs == nil {
-		t.Error("Watch() errs channel is nil")
-	}
-
-	cancel() // Cleanup
-}
-
-func TestWatch_ConvenienceFunction_InvalidLogDir(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	_, _, err := vrclog.Watch(ctx, vrclog.WatchOptions{
-		LogDir: "/nonexistent/path",
-	})
-	if err == nil {
-		t.Error("Watch() expected error for invalid log dir")
 	}
 }
 
@@ -446,10 +398,10 @@ func TestWatcher_IncludeRawLine(t *testing.T) {
 	}
 	defer f.Close()
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir:         dir,
-		IncludeRawLine: true,
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+		vrclog.WithIncludeRawLine(true),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,12 +444,10 @@ func TestWatcher_ReplayFromStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-		Replay: vrclog.ReplayConfig{
-			Mode: vrclog.ReplayFromStart,
-		},
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+		vrclog.WithReplayFromStart(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,13 +489,10 @@ func TestWatcher_ReplayLastN(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-		Replay: vrclog.ReplayConfig{
-			Mode:  vrclog.ReplayLastN,
-			LastN: 2, // Only last 2 events
-		},
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+		vrclog.WithReplayLastN(2), // Only last 2 events
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,13 +539,10 @@ func TestWatcher_ReplaySinceTime(t *testing.T) {
 	// Replay since 13:00 (should get NewUser1 and NewUser2)
 	since, _ := time.ParseInLocation("2006.01.02 15:04:05", "2024.01.15 13:00:00", time.Local)
 
-	watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-		LogDir: dir,
-		Replay: vrclog.ReplayConfig{
-			Mode:  vrclog.ReplaySinceTime,
-			Since: since,
-		},
-	})
+	watcher, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+		vrclog.WithReplaySinceTime(since),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

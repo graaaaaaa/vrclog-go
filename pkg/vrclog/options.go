@@ -1,6 +1,7 @@
 package vrclog
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -36,6 +37,37 @@ func applyWatchOptions(opts []WatchOption) *watchConfig {
 		}
 	}
 	return cfg
+}
+
+// validate checks for invalid option combinations.
+func (c *watchConfig) validate() error {
+	// Validate ReplayLastN
+	if c.replay.Mode == ReplayLastN && c.replay.LastN < 0 {
+		return fmt.Errorf("replay LastN must be non-negative, got %d", c.replay.LastN)
+	}
+
+	// Validate ReplayLastN against maximum limit
+	if c.replay.Mode == ReplayLastN {
+		maxLines := c.maxReplayLines
+		if maxLines == 0 {
+			maxLines = DefaultMaxReplayLastN
+		}
+		if maxLines > 0 && c.replay.LastN > maxLines {
+			return fmt.Errorf("replay LastN (%d) exceeds maximum of %d", c.replay.LastN, maxLines)
+		}
+	}
+
+	// Validate ReplaySinceTime
+	if c.replay.Mode == ReplaySinceTime && c.replay.Since.IsZero() {
+		return fmt.Errorf("replay Since must be set when mode is ReplaySinceTime")
+	}
+
+	// Validate PollInterval
+	if c.pollInterval < 0 {
+		return fmt.Errorf("poll interval must be non-negative, got %v", c.pollInterval)
+	}
+
+	return nil
 }
 
 // WithLogDir sets the VRChat log directory.
@@ -142,48 +174,6 @@ func WithExcludeTypes(types ...EventType) WatchOption {
 func WithFilter(include, exclude []EventType) WatchOption {
 	return func(c *watchConfig) {
 		c.filter = newCompiledFilter(include, exclude)
-	}
-}
-
-// FromWatchOptions converts legacy WatchOptions to functional options.
-// This provides backward compatibility during migration.
-//
-// Deprecated: Use functional options directly instead.
-func FromWatchOptions(opts WatchOptions) []WatchOption {
-	var result []WatchOption
-
-	if opts.LogDir != "" {
-		result = append(result, WithLogDir(opts.LogDir))
-	}
-	if opts.PollInterval > 0 {
-		result = append(result, WithPollInterval(opts.PollInterval))
-	}
-	if opts.IncludeRawLine {
-		result = append(result, WithIncludeRawLine(true))
-	}
-	if opts.Replay.Mode != ReplayNone {
-		result = append(result, WithReplay(opts.Replay))
-	}
-	if opts.MaxReplayLines != 0 {
-		result = append(result, WithMaxReplayLines(opts.MaxReplayLines))
-	}
-	if opts.Logger != nil {
-		result = append(result, WithLogger(opts.Logger))
-	}
-
-	return result
-}
-
-// toWatchOptions converts a watchConfig back to WatchOptions.
-// Used internally to maintain compatibility with existing code.
-func (c *watchConfig) toWatchOptions() WatchOptions {
-	return WatchOptions{
-		LogDir:         c.logDir,
-		PollInterval:   c.pollInterval,
-		IncludeRawLine: c.includeRawLine,
-		Replay:         c.replay,
-		MaxReplayLines: c.maxReplayLines,
-		Logger:         c.logger,
 	}
 }
 

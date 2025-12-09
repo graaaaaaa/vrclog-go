@@ -261,37 +261,3 @@ func TestWatchWithOptions_ReplayFromStart(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 }
-
-func TestFromWatchOptions_Conversion(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "output_log_test.txt")
-
-	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Test that FromWatchOptions converts legacy options to functional options
-	legacyOpts := vrclog.WatchOptions{
-		LogDir:         dir,
-		PollInterval:   5 * time.Second,
-		IncludeRawLine: true,
-	}
-
-	functionalOpts := vrclog.FromWatchOptions(legacyOpts)
-	if len(functionalOpts) == 0 {
-		t.Error("FromWatchOptions() returned empty slice")
-	}
-
-	// Should be able to use the converted options
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	events, errs, err := vrclog.WatchWithOptions(ctx, functionalOpts...)
-	if err != nil {
-		t.Fatalf("WatchWithOptions() with converted options error = %v", err)
-	}
-
-	if events == nil || errs == nil {
-		t.Error("channels should not be nil")
-	}
-}
