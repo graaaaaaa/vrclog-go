@@ -126,6 +126,24 @@ func TestNormalizeEventTypes(t *testing.T) {
 			want:    nil,
 			wantErr: true,
 		},
+		{
+			name:    "empty string error",
+			input:   []string{""},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "empty between values error",
+			input:   []string{"player_join", "", "player_left"},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "whitespace only error",
+			input:   []string{"   "},
+			want:    nil,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

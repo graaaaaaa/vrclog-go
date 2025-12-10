@@ -39,7 +39,7 @@ func NormalizeEventTypes(values []string) ([]vrclog.EventType, error) {
 	for _, raw := range values {
 		name := strings.ToLower(strings.TrimSpace(raw))
 		if name == "" {
-			continue
+			return nil, fmt.Errorf("empty event type provided (input: %q); valid types: %s", raw, strings.Join(ValidEventTypeNames(), ", "))
 		}
 
 		t, ok := ValidEventTypes[name]
