@@ -75,7 +75,6 @@ func init() {
 		"Replay events since timestamp (RFC3339 format, e.g., 2024-01-15T12:00:00Z)")
 }
 
-
 func runTail(cmd *cobra.Command, args []string) error {
 	// Validate format
 	if !ValidFormats[format] {
