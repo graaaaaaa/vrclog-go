@@ -43,10 +43,20 @@ go build -o vrclog ./cmd/vrclog/
 ### コマンド一覧
 
 ```bash
-vrclog tail      # VRChatログを監視
+vrclog tail      # VRChatログを監視（リアルタイム）
+vrclog parse     # VRChatログを解析（バッチ/オフライン）
 vrclog version   # バージョン情報を表示
 vrclog --help    # ヘルプを表示
 ```
+
+### ストリーミング vs バッチ
+
+| 機能 | `tail` | `parse` |
+|------|--------|---------|
+| モード | リアルタイム監視 | バッチ処理 |
+| ファイル処理 | 最新ファイル + ローテーション | 全マッチファイル |
+| 用途 | ライブ監視 | 過去ログ分析 |
+| イベント配信 | チャネルベース | イテレータベース |
 
 ### グローバルフラグ
 
@@ -54,7 +64,21 @@ vrclog --help    # ヘルプを表示
 |--------|------|
 | `--verbose`, `-v` | 詳細なログを有効化 |
 
-### 基本的な監視
+### 共通オプション
+
+`tail` と `parse` の両方で使用可能:
+
+| フラグ | 短縮形 | 説明 |
+|--------|--------|------|
+| `--log-dir` | `-d` | VRChatログディレクトリ（未設定時は自動検出） |
+| `--format` | `-f` | 出力形式: `jsonl`（デフォルト）, `pretty` |
+| `--include-types` | | 含めるイベントタイプ（カンマ区切り） |
+| `--exclude-types` | | 除外するイベントタイプ（カンマ区切り） |
+| `--raw` | | 生のログ行を出力に含める |
+
+### tailコマンド
+
+リアルタイムでログを監視:
 
 ```bash
 # ログディレクトリを自動検出して監視
@@ -66,29 +90,12 @@ vrclog tail --log-dir "C:\Users\me\AppData\LocalLow\VRChat\VRChat"
 # 人間が読みやすい形式で出力
 vrclog tail --format pretty
 
-# 生のログ行も出力に含める
-vrclog tail --raw
-```
+# プレイヤーイベントのみ表示
+vrclog tail --include-types player_join,player_left
 
-### イベントのフィルタリング
+# ワールド参加イベントを除外
+vrclog tail --exclude-types world_join
 
-```bash
-# プレイヤー参加イベントのみ表示
-vrclog tail --types player_join
-
-# ワールド参加イベントのみ表示
-vrclog tail --types world_join
-
-# プレイヤー参加・退出イベントを表示
-vrclog tail --types player_join,player_left
-
-# 短縮形
-vrclog tail -t player_join,player_left
-```
-
-### 過去ログのリプレイ
-
-```bash
 # ログファイルの先頭からリプレイ
 vrclog tail --replay-last 0
 
@@ -99,27 +106,55 @@ vrclog tail --replay-last 100
 vrclog tail --replay-since "2024-01-15T12:00:00Z"
 ```
 
+#### tail固有フラグ
+
+| フラグ | デフォルト | 説明 |
+|--------|------------|------|
+| `--replay-last` | -1（無効） | 直近N行をリプレイ（0 = 先頭から） |
+| `--replay-since` | | 指定時刻以降をリプレイ（RFC3339形式） |
+
 注意: `--replay-last` と `--replay-since` は同時に使用できません。
 
-### tailコマンドのフラグ一覧
+### parseコマンド
 
-| フラグ | 短縮形 | デフォルト | 説明 |
-|--------|--------|------------|------|
-| `--log-dir` | `-d` | 自動検出 | VRChatログディレクトリ |
-| `--format` | `-f` | `jsonl` | 出力形式: `jsonl`, `pretty` |
-| `--types` | `-t` | 全て | 表示するイベントタイプ（カンマ区切り） |
-| `--raw` | | false | 生のログ行を出力に含める |
-| `--replay-last` | | -1（無効） | 直近N行をリプレイ（0 = 先頭から） |
-| `--replay-since` | | | 指定時刻以降をリプレイ（RFC3339形式） |
+過去ログを解析（バッチモード）:
+
+```bash
+# 自動検出されたディレクトリの全ログを解析
+vrclog parse
+
+# ログディレクトリを指定
+vrclog parse --log-dir "C:\Users\me\AppData\LocalLow\VRChat\VRChat"
+
+# 時間範囲でフィルタ（複数日クエリ）
+vrclog parse --since "2024-01-15T00:00:00Z" --until "2024-01-16T00:00:00Z"
+
+# イベントタイプでフィルタ
+vrclog parse --include-types world_join --format pretty
+
+# 特定のファイルを解析
+vrclog parse output_log_2024-01-15.txt output_log_2024-01-16.txt
+```
+
+#### parse固有フラグ
+
+| フラグ | デフォルト | 説明 |
+|--------|------------|------|
+| `--since` | | 指定時刻以降のイベントのみ（RFC3339形式） |
+| `--until` | | 指定時刻より前のイベントのみ（RFC3339形式） |
+| `--stop-on-error` | false | 最初のエラーで停止（スキップではなく） |
+| `[files...]` | | 解析する特定のファイルパス |
 
 ### jqとの連携
+
+`tail` と `parse` の両方がJSON Lines形式で出力:
 
 ```bash
 # 特定のプレイヤーでフィルタ
 vrclog tail | jq 'select(.player_name == "FriendName")'
 
 # イベントタイプごとにカウント
-vrclog tail | jq -s 'group_by(.type) | map({type: .[0].type, count: length})'
+vrclog parse | jq -s 'group_by(.type) | map({type: .[0].type, count: length})'
 
 # 参加イベントからプレイヤー名を抽出
 vrclog tail | jq 'select(.type == "player_join") | .player_name'
