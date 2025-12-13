@@ -43,10 +43,20 @@ go build -o vrclog ./cmd/vrclog/
 ### Commands
 
 ```bash
-vrclog tail      # Monitor VRChat logs
+vrclog tail      # Monitor VRChat logs (real-time)
+vrclog parse     # Parse VRChat logs (batch/offline)
 vrclog version   # Print version information
 vrclog --help    # Show help
 ```
+
+### Streaming vs Batch
+
+| Feature | `tail` | `parse` |
+|---------|--------|---------|
+| Mode | Real-time monitoring | Batch processing |
+| File handling | Latest file + rotation | All matching files |
+| Use case | Live monitoring | Historical analysis |
+| Event delivery | Channel-based | Iterator-based |
 
 ### Global Flags
 
@@ -54,7 +64,21 @@ vrclog --help    # Show help
 |------|-------------|
 | `--verbose`, `-v` | Enable verbose logging |
 
-### Basic Monitoring
+### Common Options
+
+These options work with both `tail` and `parse`:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--log-dir` | `-d` | VRChat log directory (auto-detect if not set) |
+| `--format` | `-f` | Output format: `jsonl` (default), `pretty` |
+| `--include-types` | | Event types to include (comma-separated) |
+| `--exclude-types` | | Event types to exclude (comma-separated) |
+| `--raw` | | Include raw log lines in output |
+
+### tail Command
+
+Monitor logs in real-time:
 
 ```bash
 # Monitor with auto-detected log directory
@@ -66,30 +90,13 @@ vrclog tail --log-dir "C:\Users\me\AppData\LocalLow\VRChat\VRChat"
 # Human-readable output
 vrclog tail --format pretty
 
-# Include raw log lines in output
-vrclog tail --raw
-```
+# Show only player events
+vrclog tail --include-types player_join,player_left
 
-### Filtering Events
+# Exclude world join events
+vrclog tail --exclude-types world_join
 
-```bash
-# Show only player join events
-vrclog tail --types player_join
-
-# Show only world join events
-vrclog tail --types world_join
-
-# Show player join and leave events
-vrclog tail --types player_join,player_left
-
-# Short form
-vrclog tail -t player_join,player_left
-```
-
-### Replay Historical Data
-
-```bash
-# Replay from the start of the log file
+# Replay from start of log file
 vrclog tail --replay-last 0
 
 # Replay last 100 lines
@@ -99,27 +106,55 @@ vrclog tail --replay-last 100
 vrclog tail --replay-since "2024-01-15T12:00:00Z"
 ```
 
+#### tail-specific Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--replay-last` | -1 (disabled) | Replay last N lines (0 = from start) |
+| `--replay-since` | | Replay since timestamp (RFC3339) |
+
 Note: `--replay-last` and `--replay-since` cannot be used together.
 
-### tail Command Flags
+### parse Command
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--log-dir` | `-d` | auto-detect | VRChat log directory |
-| `--format` | `-f` | `jsonl` | Output format: `jsonl`, `pretty` |
-| `--types` | `-t` | all | Event types to show (comma-separated) |
-| `--raw` | | false | Include raw log lines in output |
-| `--replay-last` | | -1 (disabled) | Replay last N lines (0 = from start) |
-| `--replay-since` | | | Replay since timestamp (RFC3339) |
+Parse historical logs (batch mode):
+
+```bash
+# Parse all logs in auto-detected directory
+vrclog parse
+
+# Specify log directory
+vrclog parse --log-dir "C:\Users\me\AppData\LocalLow\VRChat\VRChat"
+
+# Filter by time range (multi-day queries)
+vrclog parse --since "2024-01-15T00:00:00Z" --until "2024-01-16T00:00:00Z"
+
+# Filter by event type
+vrclog parse --include-types world_join --format pretty
+
+# Parse specific files
+vrclog parse output_log_2024-01-15.txt output_log_2024-01-16.txt
+```
+
+#### parse-specific Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--since` | | Only events at/after timestamp (RFC3339) |
+| `--until` | | Only events before timestamp (RFC3339) |
+| `--stop-on-error` | false | Stop on first error instead of skipping |
+| `[files...]` | | Specific file paths to parse |
 
 ### Processing with jq
+
+Both `tail` and `parse` output JSON Lines format:
 
 ```bash
 # Filter specific player
 vrclog tail | jq 'select(.player_name == "FriendName")'
 
 # Count events by type
-vrclog tail | jq -s 'group_by(.type) | map({type: .[0].type, count: length})'
+vrclog parse | jq -s 'group_by(.type) | map({type: .[0].type, count: length})'
 
 # Extract player names from join events
 vrclog tail | jq 'select(.type == "player_join") | .player_name'

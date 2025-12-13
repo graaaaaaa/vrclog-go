@@ -66,7 +66,10 @@ internal/             # Implementation details
 
 cmd/vrclog/           # CLI entry point
 ├── main.go           # Root command, version command
-└── tail.go           # tail subcommand implementation
+├── tail.go           # tail subcommand (real-time monitoring)
+├── parse.go          # parse subcommand (batch parsing)
+├── format.go         # Shared output formatting
+└── eventtypes.go     # Shared event type validation
 ```
 
 ### Key Design Patterns
