@@ -12,7 +12,9 @@
 //	ctx, cancel := context.WithCancel(context.Background())
 //	defer cancel()
 //
-//	events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{})
+//	events, errs, err := vrclog.WatchWithOptions(ctx,
+//	    vrclog.WithIncludeTypes(vrclog.EventPlayerJoin, vrclog.EventPlayerLeft),
+//	)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
