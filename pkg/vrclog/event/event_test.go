@@ -4,10 +4,10 @@ import "testing"
 
 func TestParseType(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    Type
-		wantOK  bool
+		name   string
+		input  string
+		want   Type
+		wantOK bool
 	}{
 		// Valid types - exact match
 		{"world_join exact", "world_join", WorldJoin, true},
