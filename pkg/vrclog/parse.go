@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
-	"github.com/vrclog/vrclog-go/internal/parser"
 )
 
 // ParseLine parses a single VRChat log line into an Event.
@@ -32,7 +31,15 @@ import (
 //	}
 //	// event == nil && err == nil means line is not a recognized event
 func ParseLine(line string) (*Event, error) {
-	return parser.Parse(line)
+	// Maintain backward compatibility by using DefaultParser
+	result, err := DefaultParser{}.ParseLine(context.Background(), line)
+	if err != nil {
+		return nil, err
+	}
+	if !result.Matched || len(result.Events) == 0 {
+		return nil, nil
+	}
+	return &result.Events[0], nil
 }
 
 // ParseFile parses a VRChat log file and returns an iterator over events.
@@ -85,7 +92,7 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 			}
 
 			line := scanner.Text()
-			ev, err := parser.Parse(line)
+			result, err := cfg.parser.ParseLine(ctx, line)
 			if err != nil {
 				if cfg.stopOnError {
 					yield(Event{}, &ParseError{Line: line, Err: err})
@@ -94,30 +101,33 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 				// Skip malformed lines by default
 				continue
 			}
-			if ev == nil {
+			if !result.Matched {
 				continue // Not a recognized event
 			}
 
-			// Apply event type filter
-			if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
-				continue
-			}
+			// Process all events from the result
+			for _, ev := range result.Events {
+				// Apply event type filter
+				if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
+					continue
+				}
 
-			// Apply time range filter
-			if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
-				continue
-			}
-			if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
-				return // Past the time window, stop iteration
-			}
+				// Apply time range filter
+				if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
+					continue
+				}
+				if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
+					return // Past the time window, stop iteration
+				}
 
-			// Include raw line if requested
-			if cfg.includeRawLine {
-				ev.RawLine = line
-			}
+				// Include raw line if requested
+				if cfg.includeRawLine {
+					ev.RawLine = line
+				}
 
-			if !yield(*ev, nil) {
-				return // Consumer requested stop (break)
+				if !yield(ev, nil) {
+					return // Consumer requested stop (break)
+				}
 			}
 		}
 

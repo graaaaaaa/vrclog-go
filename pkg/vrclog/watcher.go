@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
-	"github.com/vrclog/vrclog-go/internal/parser"
 	"github.com/vrclog/vrclog-go/internal/tailer"
 )
 
@@ -203,34 +202,38 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 }
 
 func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- Event, errCh chan<- error) {
-	ev, err := parser.Parse(line)
+	result, err := w.cfg.parser.ParseLine(ctx, line)
 	if err != nil {
 		sendError(ctx, errCh, &ParseError{Line: line, Err: err})
 		return
 	}
-	if ev == nil {
+	if !result.Matched {
 		return // Not a recognized event
 	}
 
-	// Filter by replay time if needed (do this early before other processing)
-	if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
-		return
-	}
+	// Process all events from the result
+	for _, ev := range result.Events {
+		// Filter by replay time if needed (do this early before other processing)
+		if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
+			continue
+		}
 
-	// Apply event type filter (do this before copying RawLine for efficiency)
-	if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
-		return
-	}
+		// Apply event type filter (do this before copying RawLine for efficiency)
+		if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
+			continue
+		}
 
-	// Include raw line if requested
-	if w.cfg.includeRawLine {
-		ev.RawLine = line
-	}
+		// Include raw line if requested
+		if w.cfg.includeRawLine {
+			ev.RawLine = line
+		}
 
-	// Send event
-	select {
-	case eventCh <- *ev:
-	case <-ctx.Done():
+		// Send event
+		select {
+		case eventCh <- ev:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
