@@ -53,14 +53,22 @@ make release-snapshot         # Test goreleaser locally
 ```
 pkg/vrclog/           # Public API - users import this
 ├── event/            # Event type (separate to avoid import cycles)
+│   └── event.go      # Event struct, Type enum, TypeNames()
+├── pattern/          # Custom pattern matching (Phase 1b)
+│   ├── pattern.go    # PatternFile, Pattern types
+│   ├── loader.go     # YAML pattern file loading
+│   ├── regex_parser.go # RegexParser implementation
+│   └── errors.go     # ValidationError, PatternError
+├── parser.go         # Parser interface, ParserChain, ParseResult
+├── parser_default.go # DefaultParser (wraps internal/parser)
 ├── watcher.go        # NewWatcherWithOptions(), WatchWithOptions(), Watcher type
-├── options.go        # Functional options (WithLogDir, WithReplayLastN, etc.)
-├── parse.go          # ParseLine() - delegates to internal/parser
+├── options.go        # Functional options (WithLogDir, WithParser, WithParsers, etc.)
+├── parse.go          # ParseFile(), ParseDir() - uses Parser interface
 ├── types.go          # Re-exports event types for convenience
 └── errors.go         # Sentinel errors (ErrLogDirNotFound, ErrNoLogFiles)
 
 internal/             # Implementation details
-├── parser/           # Log line parsing with regex patterns
+├── parser/           # Log line parsing with regex patterns (built-in events)
 ├── tailer/           # File tailing wrapper around nxadm/tail
 └── logfinder/        # Log directory/file detection
 
@@ -90,18 +98,45 @@ watcher, err := vrclog.NewWatcherWithOptions(
 - `NewWatcherWithOptions(opts...)` - validates options, finds log directory (returns error on failure)
 - `watcher.Watch(ctx)` - starts goroutines, returns event/error channels
 
-**ParseLine Return Convention**:
+**Parser Interface** (Phase 1a):
+- `Parser` interface allows pluggable log line parsing
+- `DefaultParser` wraps the built-in `internal/parser` for standard VRChat events
+- `ParserChain` combines multiple parsers with modes: `ChainAll`, `ChainFirst`, `ChainContinueOnError`
+- All parsers accept `context.Context` for cancellation/timeout support
+- `ParseResult` contains `Events []event.Event` and `Matched bool`
+- Custom parsers can be set via `WithParser()` or `WithParsers()` options
+
+**Custom Pattern Matching** (Phase 1b):
+- `pattern.RegexParser` allows users to define custom events via YAML patterns
+- YAML files define patterns with `id`, `event_type`, and `regex` fields
+- Named capture groups `(?P<name>...)` populate `Event.Data` map
+- Pattern files support ReDoS protection (512 byte limit per pattern, 1MB file size limit)
+- Correctly handles mixed unnamed `(\d+)` and named `(?P<name>\w+)` capture groups
+- Example:
+  ```yaml
+  version: 1
+  patterns:
+    - id: custom_event
+      event_type: my_event
+      regex: 'Player (?P<name>\w+) score: (?P<score>\d+)'
+  ```
+
+**Legacy ParseLine Convention** (internal/parser only):
 - `(*Event, nil)` - successfully parsed
 - `(nil, nil)` - not a recognized event (skip, not an error)
 - `(nil, error)` - malformed line
+- **Note**: This is the old convention used by `internal/parser`. The new `Parser` interface uses `ParseResult` instead.
 
 **Event Type Single Source of Truth**: `event.TypeNames()` in `pkg/vrclog/event/event.go` is the canonical list of event type names. CLI's `eventtypes.go` delegates to it for validation and completion.
 
 ### Event Types
 
+Built-in event types (from `internal/parser`):
 - `world_join` - User joined a world (from `[Behaviour] Entering Room:` or `Joining wrld_xxx`)
 - `player_join` - Player joined instance (from `[Behaviour] OnPlayerJoined`)
 - `player_left` - Player left instance (from `[Behaviour] OnPlayerLeft`)
+
+Custom event types can be defined via `pattern.RegexParser` YAML files.
 
 ## VRChat Log Format
 
@@ -135,4 +170,20 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 
 - macOS uses `/var` as a symlink to `/private/var`, so tests comparing paths must use `filepath.EvalSymlinks()` for expected values
 - Use `t.TempDir()` for temporary test directories (auto-cleanup)
+- Use `time.Local` consistently: both `time.ParseInLocation(..., time.Local)` and `time.Date(..., time.Local)` to avoid timezone-dependent test failures
 - Golden file tests in `cmd/vrclog/format_test.go`: update with `go test ./cmd/vrclog -run TestOutputEvent_Golden -update-golden`
+- When testing capture groups in `pattern.RegexParser`, test both named-only patterns and mixed unnamed/named patterns
+
+## Implementation Notes
+
+**Pattern Package**:
+- `pattern.RegexParser` uses `SubexpNames()` directly to maintain 1:1 index correspondence with `FindStringSubmatch()` results
+- Correctly handles patterns with mixed unnamed `(\d+)` and named `(?P<name>\w+)` capture groups
+- `Event.Data` is `nil` when no named capture groups exist (not an empty map)
+- Validation happens in `Validate()` for schema checks and `NewRegexParser()` for regex compilation
+
+**Parser Interface**:
+- All `Parser` implementations must accept `context.Context` for cancellation support
+- `ParseResult.Matched` can be `true` even when `Events` is empty (e.g., filter that matches but outputs nothing)
+- `ParserChain` checks `ctx.Err()` between parser invocations to respect cancellation
+- `nil` parsers in `ParserChain.Parsers` are skipped (not an error)
