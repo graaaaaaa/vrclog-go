@@ -260,6 +260,16 @@ func WithDirStopOnError(stop bool) ParseDirOption {
 	}
 }
 
+// WithDirParser sets a custom parser for ParseDir.
+// The parser must not be nil.
+func WithDirParser(p Parser) ParseDirOption {
+	return func(c *parseDirConfig) {
+		if p != nil {
+			c.parser = p
+		}
+	}
+}
+
 // ParseDir parses all VRChat log files in a directory, yielding events
 // in chronological order (by file modification time, oldest first).
 //
@@ -334,6 +344,9 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 		}
 		if cfg.stopOnError {
 			parseOpts = append(parseOpts, WithParseStopOnError(true))
+		}
+		if cfg.parser != nil {
+			parseOpts = append(parseOpts, WithParseParser(cfg.parser))
 		}
 
 		// Parse each file

@@ -63,6 +63,16 @@ func (c *ParserChain) ParseLine(ctx context.Context, line string) (ParseResult, 
 	anyMatched := false
 
 	for _, p := range c.Parsers {
+		// Check for context cancellation
+		if err := ctx.Err(); err != nil {
+			return ParseResult{Events: allEvents, Matched: anyMatched}, err
+		}
+
+		// Skip nil parsers
+		if p == nil {
+			continue
+		}
+
 		result, err := p.ParseLine(ctx, line)
 		if err != nil {
 			if c.Mode == ChainContinueOnError {
