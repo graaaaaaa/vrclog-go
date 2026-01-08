@@ -369,6 +369,11 @@ func sendError(ctx context.Context, errCh chan<- error, err error) {
 // WatchWithOptions creates a watcher using functional options and starts watching.
 // This is the preferred way to create and start a watcher.
 //
+// Note: This function does not return the underlying Watcher, so callers cannot
+// call Close() to perform synchronous shutdown. The watcher will stop when the
+// context is cancelled. For more control over shutdown, use NewWatcherWithOptions
+// and Watcher.Watch() directly.
+//
 // Example:
 //
 //	events, errs, err := vrclog.WatchWithOptions(ctx,
@@ -409,7 +414,7 @@ func NewWatcherWithOptions(opts ...WatchOption) (*Watcher, error) {
 	// Find log directory
 	logDir, err := logfinder.FindLogDir(cfg.logDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("finding log directory: %w", err)
 	}
 
 	// Initialize logger (use discard logger if not provided)

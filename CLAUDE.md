@@ -162,9 +162,11 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 
 - **Read-only tool**: This library only reads log files, never writes
 - **No external command execution**: No `os/exec` usage
-- **Symlink resolution**: `FindLogDir()` uses `filepath.EvalSymlinks()` to prevent symlink attacks (works with Windows Junctions in Go 1.20+)
+- **Symlink resolution**: `FindLogDir()` uses `filepath.EvalSymlinks()` to prevent symlink attacks (works with Windows Junctions in Go 1.20+). As of recent updates, symlink resolution failures are treated as invalid directories (no fallback) to prevent security issues with broken/malicious symlinks
+- **UTF-8 sanitization**: `internal/parser.Parse()` sanitizes invalid UTF-8 sequences using `strings.ToValidUTF8()` to prevent issues in JSON output
 - **Error message sanitization**: User paths are not included in error messages to prevent information leakage
 - **ReplayLastN limit**: Default maximum of 10000 lines (`DefaultMaxReplayLastN`) to prevent memory exhaustion; configurable via `WithMaxReplayLines()`
+- **Poll interval validation**: `WithPollInterval(0)` returns an error - poll intervals must be positive to prevent panics in `time.NewTicker()`
 
 ## Testing Notes
 
@@ -187,3 +189,8 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - `ParseResult.Matched` can be `true` even when `Events` is empty (e.g., filter that matches but outputs nothing)
 - `ParserChain` checks `ctx.Err()` between parser invocations to respect cancellation
 - `nil` parsers in `ParserChain.Parsers` are skipped (not an error)
+- `WithParser(nil)`, `WithParseParser(nil)`, `WithDirParser(nil)` have no effect - the default parser remains active. This behavior is documented in function comments
+
+**API Limitations**:
+- `WatchWithOptions()` does not return the underlying Watcher, so callers cannot call `Close()` for synchronous shutdown. Use `NewWatcherWithOptions()` + `Watcher.Watch()` for more control
+- `WithParseUntil()` assumes timestamps are monotonically increasing. Out-of-order timestamps may cause events to be skipped

@@ -65,8 +65,8 @@ func (c *watchConfig) validate() error {
 	}
 
 	// Validate PollInterval
-	if c.pollInterval < 0 {
-		return fmt.Errorf("poll interval must be non-negative, got %v", c.pollInterval)
+	if c.pollInterval <= 0 {
+		return fmt.Errorf("poll interval must be positive, got %v", c.pollInterval)
 	}
 
 	return nil
@@ -134,16 +134,17 @@ func WithMaxReplayLines(max int) WatchOption {
 	}
 }
 
-// WithLogger sets the slog logger for debug output.
-// If nil (default), logging is disabled.
+// WithLogger sets a custom logger for debug output.
+// If logger is nil, logging is disabled (default behavior).
 func WithLogger(logger *slog.Logger) WatchOption {
 	return func(c *watchConfig) {
 		c.logger = logger
 	}
 }
 
-// WithParser sets a custom parser for log lines.
-// The parser must not be nil.
+// WithParser sets a custom parser for log line parsing.
+// If p is nil, this option has no effect (the default parser remains active).
+// Use this to customize how log lines are interpreted.
 func WithParser(p Parser) WatchOption {
 	return func(c *watchConfig) {
 		if p != nil {
@@ -291,6 +292,10 @@ func WithParseSince(since time.Time) ParseOption {
 }
 
 // WithParseUntil filters events to only include those before the given time.
+//
+// Note: This optimization assumes timestamps in log files are monotonically
+// increasing. If timestamps are out of order (e.g., due to timezone changes),
+// some events may be skipped. For guaranteed completeness, omit this option.
 func WithParseUntil(until time.Time) ParseOption {
 	return func(c *parseConfig) {
 		c.until = until
@@ -298,7 +303,7 @@ func WithParseUntil(until time.Time) ParseOption {
 }
 
 // WithParseParser sets a custom parser for ParseFile/ParseDir.
-// The parser must not be nil.
+// If p is nil, this option has no effect (the default parser remains active).
 func WithParseParser(p Parser) ParseOption {
 	return func(c *parseConfig) {
 		if p != nil {

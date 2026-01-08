@@ -266,7 +266,7 @@ func WithDirStopOnError(stop bool) ParseDirOption {
 }
 
 // WithDirParser sets a custom parser for ParseDir.
-// The parser must not be nil.
+// If p is nil, this option has no effect (the default parser remains active).
 func WithDirParser(p Parser) ParseDirOption {
 	return func(c *parseDirConfig) {
 		if p != nil {

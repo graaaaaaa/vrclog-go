@@ -1,3 +1,6 @@
+// Package pattern provides custom pattern matching for VRChat log files.
+// It allows users to define their own event types via YAML configuration files
+// with regular expression patterns.
 package pattern
 
 // PatternFile represents the structure of a YAML pattern file.

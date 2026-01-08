@@ -35,6 +35,12 @@ func (f ParserFunc) ParseLine(ctx context.Context, line string) (ParseResult, er
 	return f(ctx, line)
 }
 
+// Compile-time interface checks.
+var (
+	_ Parser = ParserFunc(nil)
+	_ Parser = (*ParserChain)(nil)
+)
+
 // ChainMode specifies how ParserChain executes parsers.
 type ChainMode int
 

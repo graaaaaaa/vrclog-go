@@ -94,13 +94,22 @@ func FindLatestLogFile(dir string) (string, error) {
 		return "", ErrNoLogFiles
 	}
 
+	// Filter out files that can't be stat'd
+	validMatches := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if _, err := os.Stat(m); err == nil {
+			validMatches = append(validMatches, m)
+		}
+	}
+	if len(validMatches) == 0 {
+		return "", ErrNoLogFiles
+	}
+	matches = validMatches
+
 	// Sort by modification time (newest first)
 	sort.Slice(matches, func(i, j int) bool {
-		infoI, errI := os.Stat(matches[i])
-		infoJ, errJ := os.Stat(matches[j])
-		if errI != nil || errJ != nil {
-			return false
-		}
+		infoI, _ := os.Stat(matches[i])
+		infoJ, _ := os.Stat(matches[j])
 		return infoI.ModTime().After(infoJ.ModTime())
 	})
 
@@ -120,9 +129,9 @@ func resolveAndValidateLogDir(dir string) string {
 	// Resolve symlinks (works with Windows Junctions in Go 1.20+)
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		// Fallback to original path if symlink resolution fails
-		// (e.g., permission issues, broken links)
-		resolved = dir
+		// Symlink resolution failed - treat as invalid directory
+		// to prevent potential security issues with broken/malicious symlinks
+		return ""
 	}
 
 	// Check for log files in resolved path
