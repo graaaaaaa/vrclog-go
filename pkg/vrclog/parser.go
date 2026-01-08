@@ -57,6 +57,12 @@ type ParserChain struct {
 }
 
 // ParseLine implements the Parser interface.
+//
+// Context Cancellation:
+// If the context is cancelled during execution, ParseLine returns immediately
+// with partial results (events collected before cancellation) and the context error.
+// Callers should typically discard partial results when err != nil, but the partial
+// data is provided for debugging and observability purposes.
 func (c *ParserChain) ParseLine(ctx context.Context, line string) (ParseResult, error) {
 	var allEvents []event.Event
 	var errs []error

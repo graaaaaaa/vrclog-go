@@ -15,6 +15,11 @@ import (
 
 // ParseLine parses a single VRChat log line into an Event.
 //
+// LEGACY API - This function has several limitations:
+//   - Cannot be cancelled or timeout (uses context.Background internally)
+//   - Returns only the first event if multiple events are parsed from one line
+//   - For more control, use ParseFile with custom parser options
+//
 // Return values:
 //   - (*Event, nil): Successfully parsed event
 //   - (nil, nil): Line doesn't match any known event pattern (not an error)
@@ -324,6 +329,9 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 		}
 
 		// Build ParseOptions from config
+		// NOTE: This rebuilds the filter from maps to slices, which is somewhat inefficient.
+		// A future optimization could pass parseConfig directly or use internal options.
+		// However, the impact is minimal since filters are typically small.
 		var parseOpts []ParseOption
 		if cfg.filter != nil {
 			include := make([]EventType, 0, len(cfg.filter.include))

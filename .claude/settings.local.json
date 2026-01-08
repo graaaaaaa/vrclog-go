@@ -23,7 +23,10 @@
       "Bash(go mod tidy:*)",
       "Bash(make lint:*)",
       "Bash(gh pr create:*)",
-      "Bash(staticcheck:*)"
+      "Bash(staticcheck:*)",
+      "Bash(grep:*)",
+      "Bash(go tool cover:*)",
+      "Bash(ls:*)"
     ]
   }
 }

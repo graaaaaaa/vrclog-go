@@ -3,6 +3,7 @@ package vrclog_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -284,10 +285,11 @@ func TestParserChain_ContextCancellation(t *testing.T) {
 func TestParserChain_ContextCancellationMidChain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	callCount := 0
+	var callCount int32
 	parser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
-		callCount++
-		if callCount == 5 {
+		// Use atomic to avoid race detector warnings and demonstrate best practice
+		count := atomic.AddInt32(&callCount, 1)
+		if count == 5 {
 			cancel() // Cancel after 5th call
 		}
 		return vrclog.ParseResult{
@@ -311,7 +313,7 @@ func TestParserChain_ContextCancellationMidChain(t *testing.T) {
 	assert.Equal(t, context.Canceled, err)
 	assert.True(t, result.Matched)
 	// Should have called 5 parsers before cancellation
-	assert.Equal(t, 5, callCount)
+	assert.Equal(t, int32(5), atomic.LoadInt32(&callCount))
 	// Should have collected 5 events before cancellation
 	assert.Len(t, result.Events, 5)
 }
