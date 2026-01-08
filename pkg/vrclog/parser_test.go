@@ -337,3 +337,48 @@ func TestParserChain_NilParser(t *testing.T) {
 	// Should skip nil parser and call p1 twice
 	assert.Len(t, result.Events, 2)
 }
+
+func TestParserChain_ChainContinueOnError_ContextCancellationPreservesErrors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var callCount int32
+	p1 := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		atomic.AddInt32(&callCount, 1)
+		return vrclog.ParseResult{}, errors.New("p1 error")
+	})
+	p2 := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		atomic.AddInt32(&callCount, 1)
+		// Cancel context during p2 execution
+		cancel()
+		return vrclog.ParseResult{
+			Events:  []event.Event{{Type: "test"}},
+			Matched: true,
+		}, nil
+	})
+	p3 := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		// This should not be called - context cancelled before reaching here
+		atomic.AddInt32(&callCount, 1)
+		return vrclog.ParseResult{}, errors.New("p3 error")
+	})
+
+	chain := &vrclog.ParserChain{
+		Mode:    vrclog.ChainContinueOnError,
+		Parsers: []vrclog.Parser{p1, p2, p3},
+	}
+
+	result, err := chain.ParseLine(ctx, "test")
+
+	// Should have error (both p1 error and context.Canceled)
+	assert.Error(t, err)
+
+	// Error should contain both p1 error and context error
+	assert.Contains(t, err.Error(), "p1 error")
+	assert.ErrorIs(t, err, context.Canceled)
+
+	// Should have collected event from p2
+	assert.True(t, result.Matched)
+	assert.Len(t, result.Events, 1)
+
+	// Should have called p1 and p2, but not p3 (cancelled after p2)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&callCount))
+}

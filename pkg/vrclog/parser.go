@@ -51,6 +51,8 @@ const (
 )
 
 // ParserChain combines multiple parsers.
+// If Mode is not one of the defined constants (ChainAll, ChainFirst, ChainContinueOnError),
+// the behavior defaults to ChainAll.
 type ParserChain struct {
 	Mode    ChainMode
 	Parsers []Parser
@@ -71,6 +73,10 @@ func (c *ParserChain) ParseLine(ctx context.Context, line string) (ParseResult, 
 	for _, p := range c.Parsers {
 		// Check for context cancellation
 		if err := ctx.Err(); err != nil {
+			// In ChainContinueOnError mode, preserve collected parser errors
+			if c.Mode == ChainContinueOnError && len(errs) > 0 {
+				return ParseResult{Events: allEvents, Matched: anyMatched}, errors.Join(append(errs, err)...)
+			}
 			return ParseResult{Events: allEvents, Matched: anyMatched}, err
 		}
 
