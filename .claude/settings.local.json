@@ -22,7 +22,8 @@
       "Bash(go get:*)",
       "Bash(go mod tidy:*)",
       "Bash(make lint:*)",
-      "Bash(gh pr create:*)"
+      "Bash(gh pr create:*)",
+      "Bash(staticcheck:*)"
     ]
   }
 }

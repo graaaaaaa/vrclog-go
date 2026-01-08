@@ -251,3 +251,87 @@ func TestParserChain_ErrorStopsChainAll(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, []int{1}, callOrder) // p2 should not be called
 }
+
+func TestParserChain_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	callCount := 0
+	slowParser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		callCount++
+		return vrclog.ParseResult{Matched: false}, nil
+	})
+
+	// Create a chain with 10 parsers
+	parsers := make([]vrclog.Parser, 10)
+	for i := range parsers {
+		parsers[i] = slowParser
+	}
+
+	chain := &vrclog.ParserChain{
+		Mode:    vrclog.ChainAll,
+		Parsers: parsers,
+	}
+
+	result, err := chain.ParseLine(ctx, "test")
+	assert.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+	assert.False(t, result.Matched)
+	// Should stop after checking context, not call all parsers
+	assert.Equal(t, 0, callCount, "no parsers should be called when context is already cancelled")
+}
+
+func TestParserChain_ContextCancellationMidChain(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	callCount := 0
+	parser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		callCount++
+		if callCount == 5 {
+			cancel() // Cancel after 5th call
+		}
+		return vrclog.ParseResult{
+			Events:  []event.Event{{Type: "test"}},
+			Matched: true,
+		}, nil
+	})
+
+	parsers := make([]vrclog.Parser, 10)
+	for i := range parsers {
+		parsers[i] = parser
+	}
+
+	chain := &vrclog.ParserChain{
+		Mode:    vrclog.ChainAll,
+		Parsers: parsers,
+	}
+
+	result, err := chain.ParseLine(ctx, "test")
+	assert.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+	assert.True(t, result.Matched)
+	// Should have called 5 parsers before cancellation
+	assert.Equal(t, 5, callCount)
+	// Should have collected 5 events before cancellation
+	assert.Len(t, result.Events, 5)
+}
+
+func TestParserChain_NilParser(t *testing.T) {
+	p1 := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		return vrclog.ParseResult{
+			Events:  []event.Event{{Type: "type1"}},
+			Matched: true,
+		}, nil
+	})
+
+	chain := &vrclog.ParserChain{
+		Mode:    vrclog.ChainAll,
+		Parsers: []vrclog.Parser{p1, nil, p1}, // nil in the middle
+	}
+
+	result, err := chain.ParseLine(context.Background(), "test")
+	require.NoError(t, err)
+	assert.True(t, result.Matched)
+	// Should skip nil parser and call p1 twice
+	assert.Len(t, result.Events, 2)
+}
