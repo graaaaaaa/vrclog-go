@@ -8,6 +8,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// sanitizePathError removes the path from os.PathError to prevent information leakage.
+// This ensures error messages don't expose file system paths to users.
+func sanitizePathError(err error) error {
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		// Return just the operation and underlying error, without the path
+		return fmt.Errorf("%s: %w", pathErr.Op, pathErr.Err)
+	}
+	return err
+}
+
 const (
 	// MaxPatternFileSize is the maximum allowed size for a pattern file (1MB).
 	// This limit prevents denial-of-service attacks via extremely large files.
@@ -35,7 +46,7 @@ func Load(path string) (*PatternFile, error) {
 	// Check file size before reading
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat pattern file: %w", err)
+		return nil, fmt.Errorf("failed to stat pattern file: %w", sanitizePathError(err))
 	}
 	if info.Size() > MaxPatternFileSize {
 		return nil, fmt.Errorf("pattern file too large: %d bytes (max %d)", info.Size(), MaxPatternFileSize)
@@ -46,7 +57,7 @@ func Load(path string) (*PatternFile, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read pattern file: %w", err)
+		return nil, fmt.Errorf("failed to read pattern file: %w", sanitizePathError(err))
 	}
 
 	return LoadBytes(data)

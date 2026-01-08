@@ -66,6 +66,19 @@ func TestLoad_FileNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to stat pattern file")
 }
 
+func TestLoad_PathSanitization(t *testing.T) {
+	// Test that error messages don't leak file paths
+	_, err := pattern.Load("/nonexistent/secret/path.yaml")
+	require.Error(t, err)
+	errStr := err.Error()
+	// Verify path components are NOT in the error message
+	assert.NotContains(t, errStr, "/nonexistent", "error message should not contain path")
+	assert.NotContains(t, errStr, "secret", "error message should not contain path component")
+	assert.NotContains(t, errStr, "path.yaml", "error message should not contain filename")
+	// Verify error message still contains useful information
+	assert.Contains(t, errStr, "failed to stat pattern file", "error message should contain operation description")
+}
+
 func TestLoad_EmptyFile(t *testing.T) {
 	// Create a temporary empty file is tricky, so we test via LoadBytes
 	_, err := pattern.LoadBytes([]byte{})
