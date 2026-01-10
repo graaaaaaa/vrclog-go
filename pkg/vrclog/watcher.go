@@ -203,10 +203,38 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 
 func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- Event, errCh chan<- error) {
 	result, err := w.cfg.parser.ParseLine(ctx, line)
+
+	// Process events even if there's an error (e.g., ChainContinueOnError mode)
+	// This ensures partial success from multi-parser chains is not lost
+	hasEvents := len(result.Events) > 0
+
 	if err != nil {
+		// Send error but still process any events we got
+		if hasEvents {
+			// Process events first, then send the error
+			// This allows ChainContinueOnError to emit events + errors
+			for _, ev := range result.Events {
+				// Apply same filters as below
+				if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
+					continue
+				}
+				if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
+					continue
+				}
+				if w.cfg.includeRawLine {
+					ev.RawLine = line
+				}
+				select {
+			case eventCh <- ev:
+			case <-ctx.Done():
+				return
+			}
+			}
+		}
 		sendError(ctx, errCh, &ParseError{Line: line, Err: err})
 		return
 	}
+
 	if !result.Matched {
 		return // Not a recognized event
 	}
