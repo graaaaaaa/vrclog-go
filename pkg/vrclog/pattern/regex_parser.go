@@ -53,6 +53,12 @@ func NewRegexParser(pf *PatternFile) (*RegexParser, error) {
 		return nil, fmt.Errorf("pattern file is nil")
 	}
 
+	// Validate the pattern file to enforce security constraints
+	// (max pattern length, required fields, etc.)
+	if err := pf.Validate(); err != nil {
+		return nil, err
+	}
+
 	patterns := make([]*compiledPattern, 0, len(pf.Patterns))
 	for i, p := range pf.Patterns {
 		re, err := regexp.Compile(p.Regex)
@@ -62,6 +68,7 @@ func NewRegexParser(pf *PatternFile) (*RegexParser, error) {
 				ID:      p.ID,
 				Field:   "regex",
 				Message: fmt.Sprintf("invalid regular expression: %v", err),
+				Cause:   err,
 			}
 		}
 

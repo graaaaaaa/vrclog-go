@@ -3,6 +3,7 @@ package pattern_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -385,4 +386,50 @@ func TestRegexParser_MixedCaptureGroups(t *testing.T) {
 	assert.Equal(t, "456", ev.Data["value"])
 	// The unnamed group (123) should NOT be in Data
 	assert.NotContains(t, ev.Data, "")
+}
+
+func TestNewRegexParser_CallsValidate(t *testing.T) {
+	// Test that NewRegexParser enforces validation
+	// even when passed a programmatically-created PatternFile
+	pf := &pattern.PatternFile{
+		Version: 1,
+		Patterns: []pattern.Pattern{
+			{
+				ID:        "test",
+				EventType: "test",
+				Regex:     strings.Repeat("a", pattern.MaxPatternLength+1), // Over limit
+			},
+		},
+	}
+
+	_, err := pattern.NewRegexParser(pf)
+	require.Error(t, err)
+	var patErr *pattern.PatternError
+	require.True(t, errors.As(err, &patErr))
+	assert.Contains(t, err.Error(), "pattern too long")
+}
+
+func TestPatternError_Unwrap(t *testing.T) {
+	// Test that regex compile errors can be unwrapped from PatternError
+	pf := &pattern.PatternFile{
+		Version: 1,
+		Patterns: []pattern.Pattern{
+			{
+				ID:        "broken",
+				EventType: "test",
+				Regex:     "[invalid",
+			},
+		},
+	}
+
+	_, err := pattern.NewRegexParser(pf)
+	require.Error(t, err)
+
+	var patErr *pattern.PatternError
+	require.True(t, errors.As(err, &patErr))
+	assert.NotNil(t, patErr.Cause, "PatternError should have a Cause")
+
+	// Test that Unwrap works
+	unwrapped := errors.Unwrap(err)
+	assert.NotNil(t, unwrapped, "errors.Unwrap should return the cause")
 }
