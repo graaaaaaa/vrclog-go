@@ -79,10 +79,20 @@ func FindLogDir(explicit string) (string, error) {
 	return "", ErrLogDirNotFound
 }
 
+// logCandidate holds a log file path and its cached modification time.
+// This avoids race conditions where files are deleted between stat and sort.
+type logCandidate struct {
+	path    string
+	modTime int64
+}
+
 // FindLatestLogFile returns the path to the most recently modified
 // output_log file in the given directory.
 //
 // Returns ErrNoLogFiles if no log files are found.
+//
+// Security: This function caches stat results to avoid TOCTOU race conditions
+// where log files could be deleted between filtering and sorting.
 func FindLatestLogFile(dir string) (string, error) {
 	pattern := filepath.Join(dir, "output_log_*.txt")
 	matches, err := filepath.Glob(pattern)
@@ -94,26 +104,34 @@ func FindLatestLogFile(dir string) (string, error) {
 		return "", ErrNoLogFiles
 	}
 
-	// Filter out files that can't be stat'd
-	validMatches := make([]string, 0, len(matches))
+	// Stat files once and cache results to avoid race conditions
+	candidates := make([]logCandidate, 0, len(matches))
 	for _, m := range matches {
-		if _, err := os.Stat(m); err == nil {
-			validMatches = append(validMatches, m)
+		info, err := os.Stat(m)
+		if err != nil {
+			// Skip files that can't be stat'd (deleted, permission issues, etc.)
+			continue
 		}
+		// Also skip non-regular files (directories, symlinks, etc.)
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		candidates = append(candidates, logCandidate{
+			path:    m,
+			modTime: info.ModTime().UnixNano(),
+		})
 	}
-	if len(validMatches) == 0 {
+
+	if len(candidates) == 0 {
 		return "", ErrNoLogFiles
 	}
-	matches = validMatches
 
-	// Sort by modification time (newest first)
-	sort.Slice(matches, func(i, j int) bool {
-		infoI, _ := os.Stat(matches[i])
-		infoJ, _ := os.Stat(matches[j])
-		return infoI.ModTime().After(infoJ.ModTime())
+	// Sort by cached modification time (newest first)
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime > candidates[j].modTime
 	})
 
-	return matches[0], nil
+	return candidates[0].path, nil
 }
 
 // resolveAndValidateLogDir resolves symlinks and validates the directory.
