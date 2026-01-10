@@ -3,6 +3,7 @@ package pattern
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -36,6 +37,11 @@ const (
 // Load reads and parses a pattern file from the given path.
 // Returns an error if the file cannot be read, is too large, or fails validation.
 //
+// Security: This function protects against FIFO/device file DoS attacks by:
+//   - Opening the file and stat-ing the file descriptor (avoiding TOCTOU)
+//   - Rejecting non-regular files (FIFO, device, socket, etc.)
+//   - Using io.LimitReader to enforce size limits during read
+//
 // Example:
 //
 //	pf, err := pattern.Load("patterns.yaml")
@@ -43,21 +49,42 @@ const (
 //	    log.Fatalf("failed to load pattern file: %v", err)
 //	}
 func Load(path string) (*PatternFile, error) {
-	// Check file size before reading
-	info, err := os.Stat(path)
+	// Open file first (don't use os.ReadFile which doesn't check file type)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open pattern file: %w", sanitizePathError(err))
+	}
+	defer f.Close()
+
+	// Stat the file descriptor (not the path) to avoid TOCTOU
+	info, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat pattern file: %w", sanitizePathError(err))
+	}
+
+	// Reject non-regular files (FIFO, device, socket, etc.) to prevent DoS
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("pattern file must be a regular file (not FIFO, device, or special file)")
+	}
+
+	// Check size constraints
+	if info.Size() == 0 {
+		return nil, errors.New("pattern file is empty")
 	}
 	if info.Size() > MaxPatternFileSize {
 		return nil, fmt.Errorf("pattern file too large: %d bytes (max %d)", info.Size(), MaxPatternFileSize)
 	}
-	if info.Size() == 0 {
-		return nil, errors.New("pattern file is empty")
-	}
 
-	data, err := os.ReadFile(path)
+	// Read with size limit to prevent unbounded reads
+	// Read MaxPatternFileSize+1 to detect if file grows beyond limit
+	data, err := io.ReadAll(io.LimitReader(f, MaxPatternFileSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read pattern file: %w", sanitizePathError(err))
+	}
+
+	// Double-check size (protects against file growing between Stat and Read)
+	if len(data) > MaxPatternFileSize {
+		return nil, fmt.Errorf("pattern file too large: %d bytes (max %d)", len(data), MaxPatternFileSize)
 	}
 
 	return LoadBytes(data)

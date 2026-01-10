@@ -2,6 +2,7 @@ package pattern_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestLoad_PatternTooLong(t *testing.T) {
 func TestLoad_FileNotFound(t *testing.T) {
 	_, err := pattern.Load("testdata/nonexistent.yaml")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to stat pattern file")
+	assert.Contains(t, err.Error(), "failed to open pattern file")
 }
 
 func TestLoad_PathSanitization(t *testing.T) {
@@ -76,7 +77,7 @@ func TestLoad_PathSanitization(t *testing.T) {
 	assert.NotContains(t, errStr, "secret", "error message should not contain path component")
 	assert.NotContains(t, errStr, "path.yaml", "error message should not contain filename")
 	// Verify error message still contains useful information
-	assert.Contains(t, errStr, "failed to stat pattern file", "error message should contain operation description")
+	assert.Contains(t, errStr, "failed to open pattern file", "error message should contain operation description")
 }
 
 func TestLoad_EmptyFile(t *testing.T) {
@@ -218,4 +219,35 @@ func TestValidate_PatternLengthOverMax(t *testing.T) {
 	var patErr *pattern.PatternError
 	require.True(t, errors.As(err, &patErr))
 	assert.Contains(t, err.Error(), "pattern too long")
+}
+func TestLoad_NonRegularFile_Directory(t *testing.T) {
+	// Attempt to load a directory should fail
+	_, err := pattern.Load("testdata")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "regular file")
+}
+
+func TestLoad_NonRegularFile_Symlink(t *testing.T) {
+	// Create a temporary symlink to a valid file
+	// Use absolute path to avoid path resolution issues
+	absTarget, err := os.Getwd()
+	require.NoError(t, err)
+	absTarget = absTarget + "/testdata/valid.yaml"
+
+	link := t.TempDir() + "/symlink.yaml"
+	err = os.Symlink(absTarget, link)
+	require.NoError(t, err)
+
+	// Symlinks to regular files should be accepted (os.Open follows them)
+	// The security check is about FIFO/device files, not symlinks
+	pf, loadErr := pattern.Load(link)
+	require.NoError(t, loadErr)
+	assert.NotNil(t, pf)
+	assert.Equal(t, 1, pf.Version)
+}
+
+func TestLoad_NonExistent(t *testing.T) {
+	_, err := pattern.Load("testdata/nonexistent.yaml")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open")
 }
