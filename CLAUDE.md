@@ -164,9 +164,12 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - **No external command execution**: No `os/exec` usage
 - **Symlink resolution**: `FindLogDir()` uses `filepath.EvalSymlinks()` to prevent symlink attacks (works with Windows Junctions in Go 1.20+). As of recent updates, symlink resolution failures are treated as invalid directories (no fallback) to prevent security issues with broken/malicious symlinks
 - **UTF-8 sanitization**: `internal/parser.Parse()` sanitizes invalid UTF-8 sequences using `strings.ToValidUTF8()` to prevent issues in JSON output
-- **Error message sanitization**: User paths are not included in error messages to prevent information leakage
+- **Error message sanitization**: Pattern loader sanitizes paths from `os.PathError` to prevent information leakage
 - **ReplayLastN limit**: Default maximum of 10000 lines (`DefaultMaxReplayLastN`) to prevent memory exhaustion; configurable via `WithMaxReplayLines()`
 - **Poll interval validation**: `WithPollInterval(0)` returns an error - poll intervals must be positive to prevent panics in `time.NewTicker()`
+- **FIFO/Device DoS protection**: `pattern.Load()` rejects non-regular files (FIFO, device, socket) to prevent hang/OOM attacks. Uses `os.Open()` + `f.Stat()` + `io.LimitReader` to avoid TOCTOU races
+- **Pattern file size limits**: 1MB max file size, 512 byte max regex pattern length (ReDoS protection)
+- **Race condition protection**: `FindLatestLogFile()` caches stat results to prevent nil-deref panics when log files are deleted during sorting
 
 ## Testing Notes
 
@@ -183,6 +186,8 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - Correctly handles patterns with mixed unnamed `(\d+)` and named `(?P<name>\w+)` capture groups
 - `Event.Data` is `nil` when no named capture groups exist (not an empty map)
 - Validation happens in `Validate()` for schema checks and `NewRegexParser()` for regex compilation
+- **Validation enforcement**: `NewRegexParser()` always calls `pf.Validate()` to enforce security constraints (max pattern length, required fields, etc.) even when `PatternFile` is constructed programmatically
+- **Error unwrapping**: `PatternError` implements `Unwrap()` to expose underlying regex compile errors for `errors.Is()` and `errors.As()` support
 
 **Parser Interface**:
 - All `Parser` implementations must accept `context.Context` for cancellation support
@@ -190,6 +195,7 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - `ParserChain` checks `ctx.Err()` between parser invocations to respect cancellation
 - `nil` parsers in `ParserChain.Parsers` are skipped (not an error)
 - `WithParser(nil)`, `WithParseParser(nil)`, `WithDirParser(nil)` have no effect - the default parser remains active. This behavior is documented in function comments
+- **ChainContinueOnError behavior**: When a parser errors but produces events, both `ParseFile` and `Watcher.processLine` now emit the events before reporting the error. This ensures partial success from multi-parser chains is not lost
 
 **API Limitations**:
 - `WatchWithOptions()` does not return the underlying Watcher, so callers cannot call `Close()` for synchronous shutdown. Use `NewWatcherWithOptions()` + `Watcher.Watch()` for more control
