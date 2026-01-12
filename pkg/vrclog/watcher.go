@@ -225,10 +225,10 @@ func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- E
 					ev.RawLine = line
 				}
 				select {
-			case eventCh <- ev:
-			case <-ctx.Done():
-				return
-			}
+				case eventCh <- ev:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 		sendError(ctx, errCh, &ParseError{Line: line, Err: err})

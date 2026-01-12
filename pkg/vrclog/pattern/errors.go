@@ -22,7 +22,7 @@ type PatternError struct {
 	ID      string // Pattern ID (may be empty if ID field is missing)
 	Field   string
 	Message string
-	Cause   error  // Underlying error (e.g., regex compile error)
+	Cause   error // Underlying error (e.g., regex compile error)
 }
 
 func (e *PatternError) Error() string {
