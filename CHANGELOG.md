@@ -13,11 +13,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--include-types`, `--exclude-types` flags for both `tail` and `parse` commands
 - Time range filtering with `--since` and `--until` flags in `parse` command
 - `ParseFile()`, `ParseDir()` library functions for offline parsing
+- **Parser interface** for pluggable log parsing (`pkg/vrclog/parser.go`)
+  - `Parser` interface with `ParseLine(ctx, line) (ParseResult, error)`
+  - `ParserFunc` adapter for functional parsers
+  - `ParserChain` for combining parsers with modes: `ChainAll`, `ChainFirst`, `ChainContinueOnError`
+  - `DefaultParser` type wrapping built-in VRChat event parsing
+  - `WithParser()`, `WithParsers()` watch/parse options
+- **Custom pattern matching** via YAML files (`pkg/vrclog/pattern/`)
+  - `PatternFile` and `Pattern` types for YAML schema
+  - `RegexParser` implementing `Parser` interface
+  - Named capture groups `(?P<name>...)` populate `Event.Data` map
+  - YAML pattern file format with `version`, `id`, `event_type`, `regex` fields
+  - `Load()`, `LoadBytes()` for pattern file loading
+  - `NewRegexParser()`, `NewRegexParserFromFile()` constructors
+  - ReDoS protection: 512 byte max pattern length, 1MB max file size
+- `Event.Data` field for custom key-value data from parsers
+- **Runnable examples** demonstrating library features (`examples/`)
+  - `custom-parser/` - Custom event extraction using `RegexParser` with YAML patterns
+  - `parser-chain/` - Combining `DefaultParser` with `RegexParser` using `ParserChain`
+  - `watch-events/` - Real-time log monitoring with `WatchWithOptions()`
 
 ### Changed
 
 - `tail --types` replaced with `--include-types` (breaking change)
 - Event type filtering is now case-insensitive and trims whitespace
+
+### Security
+
+- Pattern file FIFO/device DoS protection (rejects non-regular files)
+- Pattern file size limits (1MB max, prevents OOM)
+- Regex pattern length limits (512 bytes, ReDoS mitigation)
+- Race condition fix in `FindLatestLogFile()` (nil-deref prevention)
+- Symlink resolution failure handling (no fallback to prevent attacks)
+- `ChainContinueOnError` now preserves events from partially successful parsers
+- `NewRegexParser()` enforces validation even when `PatternFile` is constructed programmatically
+- Fuzz tests for robustness (`FuzzRegexParser_ParseLine`, `FuzzLoadBytes`) to ensure panic-free operation with arbitrary input
 
 ## [0.1.0] - Initial Release
 
