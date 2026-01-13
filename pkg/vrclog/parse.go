@@ -104,6 +104,32 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 			hasEvents := len(result.Events) > 0
 
 			if err != nil {
+				// Check for context cancellation first to avoid wrapping it in ParseError
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					// Emit any events we got before cancellation
+					if hasEvents {
+						for _, ev := range result.Events {
+							if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
+								continue
+							}
+							if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
+								continue
+							}
+							if !cfg.until.IsZero() && !ev.Timestamp.Before(cfg.until) {
+								return
+							}
+							if cfg.includeRawLine {
+								ev.RawLine = line
+							}
+							if !yield(ev, nil) {
+								return
+							}
+						}
+					}
+					yield(Event{}, ctxErr)
+					return
+				}
+
 				// Emit any events we got before handling the error
 				if hasEvents {
 					for _, ev := range result.Events {
@@ -116,8 +142,8 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 						if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
 							continue
 						}
-						if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
-							return // Past the time window, stop iteration
+						if !cfg.until.IsZero() && !ev.Timestamp.Before(cfg.until) {
+							return // Past the time window (>= until), stop iteration
 						}
 
 						// Include raw line if requested
@@ -413,6 +439,12 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 				}
 			}
 		}
+
+		// Check for context cancellation after processing all files
+		// This ensures cancellation errors aren't lost when stopOnError=false
+		if err := ctx.Err(); err != nil {
+			yield(Event{}, err)
+		}
 	}
 }
 
@@ -437,7 +469,7 @@ func listLogFiles(dir string) ([]string, error) {
 	files := make([]fileInfo, 0, len(matches))
 	var firstErr error
 	for _, path := range matches {
-		info, err := os.Stat(path)
+		info, err := os.Lstat(path)
 		if err != nil {
 			// Remember first error for potential error reporting
 			if firstErr == nil {

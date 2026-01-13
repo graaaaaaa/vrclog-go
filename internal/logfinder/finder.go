@@ -107,7 +107,7 @@ func FindLatestLogFile(dir string) (string, error) {
 	// Stat files once and cache results to avoid race conditions
 	candidates := make([]logCandidate, 0, len(matches))
 	for _, m := range matches {
-		info, err := os.Stat(m)
+		info, err := os.Lstat(m)
 		if err != nil {
 			// Skip files that can't be stat'd (deleted, permission issues, etc.)
 			continue
