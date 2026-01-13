@@ -137,6 +137,10 @@ func FindLatestLogFile(dir string) (string, error) {
 // resolveAndValidateLogDir resolves symlinks and validates the directory.
 // Returns the resolved path if valid, empty string otherwise.
 // This helps prevent symlink-based attacks and ensures path consistency.
+//
+// Note: This function only checks that the directory exists and is accessible.
+// It does NOT check for log files - that responsibility belongs to the caller
+// (FindLatestLogFile or listLogFiles), which return ErrNoLogFiles if appropriate.
 func resolveAndValidateLogDir(dir string) string {
 	// First check if path exists
 	info, err := os.Stat(dir)
@@ -149,13 +153,6 @@ func resolveAndValidateLogDir(dir string) string {
 	if err != nil {
 		// Symlink resolution failed - treat as invalid directory
 		// to prevent potential security issues with broken/malicious symlinks
-		return ""
-	}
-
-	// Check for log files in resolved path
-	pattern := filepath.Join(resolved, "output_log_*.txt")
-	matches, err := filepath.Glob(pattern)
-	if err != nil || len(matches) == 0 {
 		return ""
 	}
 

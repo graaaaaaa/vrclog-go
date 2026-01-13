@@ -23,6 +23,10 @@ var (
 	// ErrAlreadyWatching is returned when Watch() is called on a Watcher
 	// that is already watching.
 	ErrAlreadyWatching = errors.New("watch already in progress")
+
+	// ErrReplayLimitExceeded is returned when replay exceeds memory limits
+	// configured via WithMaxReplayBytes or WithMaxReplayLineBytes.
+	ErrReplayLimitExceeded = errors.New("replay memory limit exceeded")
 )
 
 // ParseError represents an error that occurred while parsing a log line.
