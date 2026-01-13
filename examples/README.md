@@ -13,7 +13,12 @@ This directory contains runnable examples demonstrating various features of vrcl
 # Run from repository root
 go run ./examples/custom-parser
 go run ./examples/parser-chain
+go run ./examples/parserfunc
 go run ./examples/watch-events
+go run ./examples/parse-files
+go run ./examples/time-filter
+go run ./examples/replay-options
+go run ./examples/parser-interface
 ```
 
 ---
@@ -74,7 +79,49 @@ Event: poker_hole_cards
 
 ---
 
-### 3. watch-events
+### 3. parserfunc
+
+**File**: `parserfunc/main.go`
+
+**What it demonstrates**:
+- Creating custom parsers with `ParserFunc` (no YAML required)
+- Constructing `event.Event` manually in Go code
+- Using `Data` map for custom fields
+- Proper handling of `Matched` return value
+- Context cancellation support in custom parsers
+
+**Use case**: When you need custom parsing logic in Go code rather than regex patterns. Useful for complex parsing that requires validation, lookups, or multi-step processing.
+
+**Key concepts**:
+- `vrclog.ParserFunc` - Adapter to convert functions to Parser interface
+- Custom event types (any string, not limited to built-in constants)
+- `event.Event` construction with required `Type` and `Timestamp` fields
+- `Matched: false` for unrecognized lines (not an error)
+- `ctx.Err()` checking for cancellation support
+
+**Output example**:
+```
+[1] ✓ game_score
+    Time: 12:00:00
+    Data:
+      player: Alice
+      score: 50
+
+[2] ✓ game_score
+    Time: 12:00:15
+    Data:
+      player: Bob
+      score: 75
+
+[3] ✓ game_win
+    Time: 12:00:30
+    Data:
+      player: Alice
+```
+
+---
+
+### 4. watch-events
 
 **File**: `watch-events/main.go`
 
@@ -102,6 +149,161 @@ Event: poker_hole_cards
 [12:00:05] ✓ Alice joined
 [12:00:23] ✗ Bob left
 [12:01:15] ✓ Charlie joined
+```
+
+---
+
+### 5. parse-files
+
+**File**: `parse-files/main.go`
+
+**What it demonstrates**:
+- Batch processing with `ParseFile()` (iterator-based)
+- `ParseFileAll()` for collecting all events into a slice
+- `ParseDir()` for processing multiple files chronologically
+- Early termination with `break`
+
+**Use case**: Analyzing historical log files, batch processing existing logs without watching for new events.
+
+**Key concepts**:
+- `iter.Seq2[Event, error]` - Go 1.25+ iterators for memory-efficient streaming
+- `ParseFile()` - Single file, supports early termination
+- `ParseFileAll()` - Convenience function that collects all events
+- `ParseDir()` - Multiple files in chronological order
+- Uses `ParseDirOption` (not `ParseOption`) with `WithDirPaths()`
+
+**Output example**:
+```
+[1] player_join - 10:00:00 | Player: Alice
+[2] player_join - 10:05:00 | Player: Bob
+[3] player_left - 10:15:00 | Player: Alice
+(stopped after 3 events to demonstrate break)
+
+Total events from both files: 4
+```
+
+---
+
+### 6. time-filter
+
+**File**: `time-filter/main.go`
+
+**What it demonstrates**:
+- Time-based filtering with `WithParseSince(t)`
+- `WithParseUntil(t)` for events before a time
+- `WithParseTimeRange(since, until)` for range filtering
+- Combining filters with other parse options
+
+**Use case**: Analyzing specific time periods, extracting events from a particular session or time window.
+
+**Key concepts**:
+- `WithParseSince(t)` - Events >= t (inclusive)
+- `WithParseUntil(t)` - Events < t (exclusive)
+  - Assumes monotonically increasing timestamps
+  - Out-of-order timestamps may be skipped
+- `WithParseTimeRange(s, u)` - Combines since and until
+- Time filters use `ParseOption` (not `WatchOption`)
+
+**Output example**:
+```
+Filter: 12:00 <= Events < 16:00
+
+12:30:00 - Bob joined
+15:00:00 - Charlie joined
+
+Matched: 2 events
+```
+
+---
+
+### 7. replay-options
+
+**File**: `replay-options/main.go`
+
+**What it demonstrates**:
+- Replay configuration options for `Watcher`
+- Five replay modes: `ReplayLastN`, `ReplayFromStart`, `ReplaySinceTime`, `ReplayNone`
+- Memory protection with `WithMaxReplayBytes()` and `WithMaxReplayLineBytes()`
+- Self-contained demo with mock log files
+
+**Use case**: Configuring how much historical data to replay when starting a watcher, controlling memory usage during replay.
+
+**Key concepts**:
+- `WithReplayLastN(N)` - Replay last N non-empty lines
+- `WithReplayFromStart()` - Replay from beginning of file
+- `WithReplaySinceTime(t)` - Replay events >= timestamp t
+- `ReplayNone` - No replay (default, tail -f behavior)
+- Memory limits:
+  - `WithMaxReplayBytes(max)` - Total bytes limit (default: 10MB)
+  - `WithMaxReplayLineBytes(max)` - Per-line limit (default: 512KB)
+- Replay options use `WatchOption` (not `ParseOption`)
+
+**Output example**:
+```
+Example 1: WithReplayLastN(5)
+✓ Watcher created
+  Replayed 5 events: Event11, Event12, Event13, Event14, Event15
+
+Example 2: WithReplayFromStart()
+✓ Watcher created
+  Replayed 15 events: Event01, Event02, ... (total: 15)
+
+Example 5: Memory Limits
+✓ Watcher created with memory limits:
+  - WithReplayLastN(100)
+  - WithMaxReplayBytes(1MB)
+  - WithMaxReplayLineBytes(64KB)
+```
+
+---
+
+### 8. parser-interface
+
+**File**: `parser-interface/main.go`
+
+**What it demonstrates**:
+- Implementing `Parser` interface directly with a struct
+- State management (match counting)
+- Custom methods beyond the interface
+- Compile-time interface verification with `var _ vrclog.Parser = (*Type)(nil)`
+- Thread-safe parser with `sync.Mutex`
+
+**Use case**: Complex parsers that need to maintain state, track statistics, or provide custom methods. Useful when `ParserFunc` is too limited.
+
+**Key concepts**:
+- `Parser` interface - `ParseLine(ctx, line) (ParseResult, error)`
+- State management - struct fields for counters, caches, etc.
+- Custom methods - `MatchCount()`, `Reset()`, `TotalLines()`
+- Compile-time checks - `var _ vrclog.Parser = (*ScoreParser)(nil)`
+- Thread safety - `sync.Mutex` for concurrent access
+- Parser vs ParserFunc:
+  - Parser (struct): Can maintain state, custom methods, thread-safe
+  - ParserFunc (function): Simpler, stateless, inline definitions
+
+**Output example**:
+```
+Example 1: Simple Parser with State Management
+[1] game_score
+    Time: 12:00:00
+    Data:
+      player: Alice
+      score: 50
+
+Parser matched 4 events
+
+Example 2: Combining with DefaultParser
+[1] game_score | Score: 50 | Player: Alice
+[2] game_score | Score: 75 | Player: Bob
+[3] game_win | Player: Alice
+[4] player_join | Player: Charlie
+[5] game_score | Score: 100 | Player: Charlie
+
+Total events: 5
+Custom parser matched: 4 events
+
+Example 3: Thread-Safe Parser with Mutex
+Initial stats: total=0, matched=0
+Final stats: total=5, matched=3
 ```
 
 ---
