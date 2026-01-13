@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `custom-parser/` - Custom event extraction using `RegexParser` with YAML patterns
   - `parser-chain/` - Combining `DefaultParser` with `RegexParser` using `ParserChain`
   - `watch-events/` - Real-time log monitoring with `WatchWithOptions()`
+  - `parserfunc/` - Creating custom parsers with `ParserFunc` adapter
+  - `parse-files/` - Batch processing with `ParseFile()` and `ParseDir()` iterators
+  - `time-filter/` - Time-based filtering with `WithParseSince()` and `WithParseUntil()`
+  - `replay-options/` - Replay configuration modes (`ReplayLastN`, `ReplayFromStart`, etc.)
+  - `parser-interface/` - Implementing `Parser` interface with state management
+  - `error-handling/` - Comprehensive error handling with `errors.Is()` and `errors.As()`
+  - `event-filtering/` - Event type filtering with `WithExcludeTypes()` and `WithFilter()`
+  - `parser-chain-modes/` - `ParserChain` modes: `ChainAll`, `ChainFirst`, `ChainContinueOnError`
+  - `parser-decorator/` - Decorator pattern for extending parsers (`MetricsParser`, `TransformingParser`)
+  - `graceful-shutdown/` - Watcher lifecycle management with `Watcher.Close()` and `sync.WaitGroup`
 
 ### Changed
 

@@ -19,6 +19,11 @@ go run ./examples/parse-files
 go run ./examples/time-filter
 go run ./examples/replay-options
 go run ./examples/parser-interface
+go run ./examples/error-handling
+go run ./examples/event-filtering
+go run ./examples/parser-chain-modes
+go run ./examples/parser-decorator
+go run ./examples/graceful-shutdown
 ```
 
 ---
@@ -304,6 +309,218 @@ Custom parser matched: 4 events
 Example 3: Thread-Safe Parser with Mutex
 Initial stats: total=0, matched=0
 Final stats: total=5, matched=3
+```
+
+---
+
+### 9. error-handling
+
+**File**: `error-handling/main.go`
+
+**What it demonstrates**:
+- Comprehensive error handling for all vrclog error types
+- Using `errors.Is()` for sentinel errors (`ErrLogDirNotFound`, `ErrNoLogFiles`, `ErrReplayLimitExceeded`)
+- Using `errors.As()` for typed errors (`ParseError`, `LineTooLongError`, `WatchError`)
+- Error classification with type switches
+- Operation-specific handling using `WatchError.Op`
+
+**Use case**: Understanding and properly handling all error scenarios in production applications. Building robust error logging and recovery mechanisms.
+
+**Key concepts**:
+- Sentinel errors - `errors.Is(err, vrclog.ErrLogDirNotFound)`
+- Typed errors - `errors.As(err, &parseErr)` to extract error details
+- `ParseError` - Contains the problematic line and underlying error
+- `LineTooLongError` - Line number, length, and max length information
+- `WatchError.Op` - Identifies which operation failed (`WatchOpFindLatest`, `WatchOpReplay`, `WatchOpParse`, `WatchOpTail`)
+- `WithParseStopOnError(true)` - Controls error propagation vs skipping
+
+**Output example**:
+```
+→ Testing ErrLogDirNotFound:
+  ✓ Detected: Log directory not found
+
+→ ParseError detected
+  Line: "2024.01.15 10:01:00 Log        -  [Test] TRIGGER_ERROR bad line"
+  Error: simulated parse error
+
+→ LineTooLongError detected
+  Line number: 1
+  Length: 66594 bytes (max: 524288 bytes)
+
+→ WatchError detected
+  Operation: tail
+  Path: /path/to/log
+  Error: I/O failure
+```
+
+---
+
+### 10. event-filtering
+
+**File**: `event-filtering/main.go`
+
+**What it demonstrates**:
+- Event type filtering with `WithExcludeTypes()` and `WithFilter()`
+- Filter precedence rules (exclude takes priority over include)
+- Dynamic event type discovery with `event.TypeNames()`
+- User input validation with `event.ParseType()`
+- Building CLI-style filters from command-line arguments
+
+**Use case**: Filtering events by type for focused analysis, building CLI tools with user-configurable filters.
+
+**Key concepts**:
+- `WithParseExcludeTypes(types...)` - Block specific event types
+- `WithParseFilter(include, exclude)` - Combine include and exclude lists
+- Filter precedence: **Exclude > Include** (if an event is in both lists, it's excluded)
+- `event.TypeNames()` - Returns all valid event type strings for validation
+- `event.ParseType(str)` - Validates and converts string to `event.Type`
+
+**Output example**:
+```
+→ Exclude player_left events:
+→ Collected 5 events:
+  - player_join: 3
+  - world_join: 2
+
+→ Include: player_join + player_left
+→ Exclude: player_left
+→ Result: Only player_join (exclude wins)
+→ Collected 3 events:
+  - player_join: 3
+
+→ All valid event types:
+  1. player_join
+  2. player_left
+  3. world_join
+```
+
+---
+
+### 11. parser-chain-modes
+
+**File**: `parser-chain-modes/main.go`
+
+**What it demonstrates**:
+- `ParserChain` modes for different parsing strategies
+- `ChainAll` - Execute all parsers and combine results
+- `ChainFirst` - Stop at first match (priority/fallback pattern)
+- `ChainContinueOnError` - Resilient parsing despite errors
+- Practical use cases for each mode
+
+**Use case**: Combining multiple parsers with different behaviors. Handling both built-in VRChat events and custom game events. Building fault-tolerant parsers.
+
+**Key concepts**:
+- `vrclog.ChainAll` mode - All parsers execute, results combined (one line can produce multiple events)
+- `vrclog.ChainFirst` mode - Stop at first match (parser priority, fallback behavior)
+- `vrclog.ChainContinueOnError` mode - Continue parsing even if one parser fails
+- `WithParsers()` shorthand - Automatically uses `ChainAll` mode
+- Strategy pattern - behavior changes based on mode selection
+
+**Output example**:
+```
+→ ChainAll Mode:
+  [Line 1] player_join - Alice
+  [Line 2] game_win - Data: map[player:Alice]
+  (Both DefaultParser and GameParser produced events)
+
+→ ChainFirst Mode:
+  [Line 2] game_win - Data: map[player:Alice]
+  (GameParser had priority, DefaultParser not called)
+
+→ ChainContinueOnError Mode:
+  [Line 4] Errors occurred, but got events:
+    Error 1: simulated parse error
+    But still got event: player_join
+  (ErrorParser failed, but DefaultParser succeeded)
+```
+
+---
+
+### 12. parser-decorator
+
+**File**: `parser-decorator/main.go`
+
+**What it demonstrates**:
+- Decorator pattern for extending `Parser` functionality
+- `MetricsParser` - Wraps a parser to collect statistics
+- `TransformingParser` - Wraps a parser to transform event data
+- Composing multiple decorators for layered functionality
+
+**Use case**: Adding metrics collection, logging, caching, data transformation, or validation to existing parsers without modifying them. Building reusable parser middleware.
+
+**Key concepts**:
+- Decorator pattern - Wraps existing parsers while implementing `Parser` interface
+- `MetricsParser` - Tracks total lines, match count, error count
+- `TransformingParser` - Applies a transformation function to all events
+- Decorator composition - Stack multiple decorators (e.g., `Metrics(Transforming(Default))`)
+- Compile-time interface check - `var _ vrclog.Parser = (*MetricsParser)(nil)`
+
+**Output example**:
+```
+→ MetricsParser:
+  Collected 7 events
+
+→ Statistics:
+  Total lines:   8
+  Matched lines: 7
+  Errors:        0
+  Match rate:    87.5%
+
+→ TransformingParser (normalize names):
+  player_join - Alice  (was: alice)
+  player_join - Bob    (was: BOB)
+
+→ Composed decorators:
+  Parser stack:
+    1. DefaultParser    (parse VRChat events)
+    2. Transforming     (normalize names)
+    3. Metrics          (collect statistics)
+```
+
+---
+
+### 13. graceful-shutdown
+
+**File**: `graceful-shutdown/main.go`
+
+**What it demonstrates**:
+- Watcher lifecycle management and graceful shutdown
+- Two-phase API: `NewWatcherWithOptions()` + `Watcher.Watch()`
+- `Watcher.Close()` for synchronous shutdown
+- `WithLogger()` for slog integration
+- `sync.WaitGroup` for coordinating multiple goroutines
+- Comparing context cancellation vs `Watcher.Close()`
+
+**Use case**: Building long-running monitoring tools with clean shutdown behavior. Debugging watcher internals with structured logging. Coordinating multiple event processing goroutines.
+
+**Key concepts**:
+- Two-phase API:
+  - `NewWatcherWithOptions(opts...)` - Create and validate (returns error on failure)
+  - `watcher.Watch(ctx)` - Start watching (returns channels, non-blocking)
+- `Watcher.Close()` - Synchronous shutdown (blocks until all resources released)
+- `WithLogger(slog.Logger)` - Inject structured logger for debugging
+- `WithWaitForLogs(true)` - Poll until log files appear (useful before VRChat starts)
+- `sync.WaitGroup` - Track completion of processing goroutines
+- Context cancellation vs Close() - Asynchronous signal vs synchronous cleanup
+
+**Output example**:
+```
+→ Event processor goroutine started
+→ Error handler goroutine started
+
+→ Waiting for replay events to process...
+  [Event 1] player_join - Alice
+  [Event 2] player_join - Bob
+  [Event 3] world_join - Test World
+
+→ Calling Close()...
+  Close() returned after 15ms
+  → All goroutines have exited
+  → Channels are closed
+
+→ Event channel closed, processor exiting
+→ Error channel closed, handler exiting
+→ All goroutines finished
 ```
 
 ---

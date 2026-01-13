@@ -26,6 +26,7 @@ Reference: [Go Module Version Numbering](https://go.dev/doc/modules/version-numb
 # Build
 make build                    # Build CLI binary
 make build-windows            # Cross-compile for Windows
+go build ./examples/...       # Build all examples
 
 # Test
 go test ./...                 # Run all tests
@@ -35,11 +36,15 @@ go test -race ./...           # With race detector
 make test-cover               # Generate coverage report
 
 # Lint (requires golangci-lint v2)
-make lint                     # Run golangci-lint
+make lint                     # Run golangci-lint (note: may report unused code in examples/)
+golangci-lint run ./pkg/...   # Lint only production code
 make fmt-check                # Check formatting (used in CI)
 
 # Format
 go fmt ./...
+
+# Examples
+go run ./examples/<name>      # Run a specific example (see examples/README.md for list)
 
 # Other
 make tidy                     # go mod tidy
@@ -82,6 +87,21 @@ cmd/vrclog/           # CLI entry point
 ├── completion.go     # Shell completion subcommand (bash/zsh/fish/powershell)
 ├── format.go         # Shared output formatting
 └── eventtypes.go     # Shared event type validation (uses event.TypeNames())
+
+examples/             # 13 runnable examples (see examples/README.md)
+├── custom-parser/    # YAML-based custom event parsing
+├── parser-chain/     # Combining multiple parsers
+├── parserfunc/       # ParserFunc adapter pattern
+├── parser-interface/ # Implementing Parser interface
+├── parser-chain-modes/ # ChainAll/ChainFirst/ChainContinueOnError
+├── parser-decorator/ # Decorator pattern (MetricsParser, TransformingParser)
+├── watch-events/     # Real-time monitoring
+├── parse-files/      # Batch file parsing with iterators
+├── time-filter/      # Time-based filtering
+├── replay-options/   # Replay configuration modes
+├── error-handling/   # Comprehensive error handling patterns
+├── event-filtering/  # Event type filtering
+└── graceful-shutdown/ # Watcher lifecycle and shutdown
 ```
 
 ### Key Design Patterns
@@ -160,12 +180,26 @@ Example lines:
 2024.01.15 23:59:59 Log        -  [Behaviour] Entering Room: World Name
 ```
 
+## Documentation
+
+When adding new examples to `examples/`:
+1. Add the example directory with a `main.go` containing package documentation
+2. Update `examples/README.md`:
+   - Add to "Running Examples" command list
+   - Add a numbered section (### N. example-name) with:
+     - **File**, **What it demonstrates**, **Use case**, **Key concepts**, **Output example**
+3. Update `CHANGELOG.md` Unreleased section to list the new example
+
+The project has comprehensive GoDoc coverage. All exported types, functions, and methods should have documentation comments.
+
 ## Linting
 
 This project uses golangci-lint v2 with configuration in `.golangci.yml`. The config:
 - Uses standard default linters (errcheck, govet, ineffassign, staticcheck, unused)
 - Excludes errcheck for test files
 - Excludes errcheck for common defer patterns (Close, Sync)
+
+**Note**: `make lint` may report unused code in `examples/` directory (e.g., unused helper functions). This is acceptable for example code. When fixing lint issues, focus on production code (`pkg/`, `internal/`, `cmd/`).
 
 ## Security Considerations
 
