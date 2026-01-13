@@ -192,6 +192,15 @@ When adding new examples to `examples/`:
 
 The project has comprehensive GoDoc coverage. All exported types, functions, and methods should have documentation comments.
 
+**Documentation Review Guidelines**:
+When updating documentation (ADRs, READMEs), verify:
+- Event type constants use correct names: `EventWorldJoin`, `EventPlayerJoin`, `EventPlayerLeft` (NOT `TypeWorldJoin`)
+- Function signatures match implementation exactly (including return types)
+- Error types are accurate (e.g., `PatternError` struct, not `ErrPatternTooLong` sentinel)
+- Code examples are compilable when copied directly from docs
+- README.md and README.ja.md remain consistent
+- All dates in ADR files use YYYY-MM-DD format
+
 ## Linting
 
 This project uses golangci-lint v2 with configuration in `.golangci.yml`. The config:
