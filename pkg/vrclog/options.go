@@ -31,7 +31,7 @@ func defaultWatchConfig() *watchConfig {
 		maxReplayLines:     DefaultMaxReplayLastN,
 		maxReplayBytes:     10 * 1024 * 1024, // 10MB default
 		maxReplayLineBytes: 512 * 1024,       // 512KB default
-		parser:             DefaultParser{},   // NEW: Default parser
+		parser:             DefaultParser{},  // NEW: Default parser
 	}
 }
 
