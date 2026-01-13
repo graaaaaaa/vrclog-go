@@ -112,7 +112,8 @@ func WithReplayFromStart() WatchOption {
 	}
 }
 
-// WithReplayLastN reads the last N lines before tailing.
+// WithReplayLastN reads the last N non-empty lines before tailing.
+// Empty lines are skipped and not counted towards N.
 func WithReplayLastN(n int) WatchOption {
 	return func(c *watchConfig) {
 		c.replay = ReplayConfig{Mode: ReplayLastN, LastN: n}

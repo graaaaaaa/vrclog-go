@@ -115,12 +115,8 @@ func NewRegexParserFromFile(path string) (*RegexParser, error) {
 // It matches the line against all patterns and returns all matching events.
 // Events are returned in the order patterns were defined in the file.
 //
-// The context parameter is currently unused but is provided for future
-// enhancements (e.g., timeout support with regexp2 library).
+// Respects context cancellation for large pattern sets.
 func (p *RegexParser) ParseLine(ctx context.Context, line string) (vrclog.ParseResult, error) {
-	// Context parameter is for future use (e.g., timeout/cancellation).
-	// Current implementation using regexp does not support cancellation.
-
 	var allEvents []event.Event
 
 	// Extract timestamp from line (VRChat format: "2024.01.15 23:59:59 ...")
@@ -128,6 +124,15 @@ func (p *RegexParser) ParseLine(ctx context.Context, line string) (vrclog.ParseR
 
 	// Check all patterns (similar to ChainAll mode)
 	for _, cp := range p.patterns {
+		// Check for context cancellation when processing many patterns
+		if err := ctx.Err(); err != nil {
+			// Return partial results and cancellation error
+			if len(allEvents) > 0 {
+				return vrclog.ParseResult{Events: allEvents, Matched: true}, err
+			}
+			return vrclog.ParseResult{Matched: false}, err
+		}
+
 		matches := cp.regex.FindStringSubmatch(line)
 		if matches == nil {
 			continue

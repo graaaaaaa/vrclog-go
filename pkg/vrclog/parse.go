@@ -98,12 +98,44 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 
 			line := scanner.Text()
 			result, err := cfg.parser.ParseLine(ctx, line)
+
+			// Process events even if there's an error (e.g., ChainContinueOnError mode)
+			// This ensures partial success from multi-parser chains is not lost
+			hasEvents := len(result.Events) > 0
+
 			if err != nil {
+				// Emit any events we got before handling the error
+				if hasEvents {
+					for _, ev := range result.Events {
+						// Apply event type filter
+						if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
+							continue
+						}
+
+						// Apply time range filter
+						if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
+							continue
+						}
+						if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
+							return // Past the time window, stop iteration
+						}
+
+						// Include raw line if requested
+						if cfg.includeRawLine {
+							ev.RawLine = line
+						}
+
+						if !yield(ev, nil) {
+							return // Consumer requested stop (break)
+						}
+					}
+				}
+
 				if cfg.stopOnError {
 					yield(Event{}, &ParseError{Line: line, Err: err})
 					return
 				}
-				// Skip malformed lines by default
+				// Skip malformed lines by default (but already emitted any events)
 				continue
 			}
 			if !result.Matched {
@@ -121,8 +153,8 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 				if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
 					continue
 				}
-				if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
-					return // Past the time window, stop iteration
+				if !cfg.until.IsZero() && !ev.Timestamp.Before(cfg.until) {
+					return // Past the time window (>= until), stop iteration
 				}
 
 				// Include raw line if requested
@@ -211,6 +243,9 @@ func WithDirLogDir(dir string) ParseDirOption {
 
 // WithDirPaths sets explicit file paths to parse.
 // If set, LogDir is ignored.
+//
+// Files are parsed in the order provided (not sorted by modification time).
+// The caller is responsible for providing files in the desired order.
 func WithDirPaths(paths ...string) ParseDirOption {
 	return func(c *parseDirConfig) {
 		c.paths = paths
@@ -400,12 +435,27 @@ func listLogFiles(dir string) ([]string, error) {
 		modTime int64
 	}
 	files := make([]fileInfo, 0, len(matches))
+	var firstErr error
 	for _, path := range matches {
 		info, err := os.Stat(path)
 		if err != nil {
+			// Remember first error for potential error reporting
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue // Skip files we can't stat
 		}
+		// Security: reject non-regular files (FIFO, device, socket, symlink)
+		// to prevent DoS attacks via blocking reads or infinite streams
+		if !info.Mode().IsRegular() {
+			continue
+		}
 		files = append(files, fileInfo{path: path, modTime: info.ModTime().UnixNano()})
+	}
+
+	// If we found matches but couldn't use any, return the first error encountered
+	if len(matches) > 0 && len(files) == 0 && firstErr != nil {
+		return nil, firstErr
 	}
 
 	sort.Slice(files, func(i, j int) bool {
