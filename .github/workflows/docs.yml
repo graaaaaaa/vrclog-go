@@ -41,3 +41,5 @@ jobs:
         with:
           use-quiet-mode: 'yes'
           config-file: '.markdown-link-check.json'
+          folder-path: 'docs, examples'
+          file-path: './README.md, ./README.ja.md, ./CHANGELOG.md, ./CLAUDE.md'

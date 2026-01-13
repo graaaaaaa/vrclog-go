@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/vrclog/vrclog-go/pkg/vrclog"
@@ -243,16 +242,17 @@ func extractTimestamp(line string) (time.Time, string, bool) {
 //   See examples/custom-parser for details
 
 // Example: Validating parsed data
-func validateScore(scoreStr string) error {
-	score, err := strconv.Atoi(scoreStr)
-	if err != nil {
-		return fmt.Errorf("invalid score: %w", err)
-	}
-	if score < 0 {
-		return fmt.Errorf("score must be non-negative: %d", score)
-	}
-	return nil
-}
+//
+//	func validateScore(scoreStr string) error {
+//		score, err := strconv.Atoi(scoreStr)
+//		if err != nil {
+//			return fmt.Errorf("invalid score: %w", err)
+//		}
+//		if score < 0 {
+//			return fmt.Errorf("score must be non-negative: %d", score)
+//		}
+//		return nil
+//	}
 
 // Example: Returning validation errors
 //

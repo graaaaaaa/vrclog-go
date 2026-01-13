@@ -80,6 +80,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README.md with usage examples
 - README.ja.md (Japanese translation)
 - Package documentation in doc.go
-
-[Unreleased]: https://github.com/vrclog/vrclog-go/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/vrclog/vrclog-go/releases/tag/v0.1.0
