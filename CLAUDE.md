@@ -211,6 +211,15 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - `WatchWithOptions()` does not return the underlying Watcher, so callers cannot call `Close()` for synchronous shutdown. Use `NewWatcherWithOptions()` + `Watcher.Watch()` for more control
 - `WithParseUntil()` assumes timestamps are monotonically increasing. Out-of-order timestamps may cause events to be skipped
 
-**Known Issues**:
-- `readLastNLines()` in `watcher.go:312` has potential for partial line corruption and memory exhaustion with large files. This is a complex issue deferred for future refactoring
-- `ErrLogDirNotFound` conflates "directory doesn't exist" with "directory exists but has no log files". This distinction requires API changes and is deferred until v1.0
+**ReplayLastN Memory Protection**:
+- `readLastNLines()` uses backward chunk scanning (4KB chunks) with carry buffer to prevent partial line corruption
+- Memory limits enforced via `WithMaxReplayBytes(max int)` (default: 10MB) and `WithMaxReplayLineBytes(max int)` (default: 512KB)
+- Returns `ErrReplayLimitExceeded` if limits are exceeded during replay
+- O(bytes read) complexity instead of naive O(n²) approach
+
+**Watcher Log Directory Handling**:
+- `FindLogDir()` only validates directory existence, not log file presence
+- `FindLatestLogFile()` returns `ErrNoLogFiles` if directory exists but has no log files
+- `WithWaitForLogs(bool)` option allows waiting for log files to appear (useful for starting watcher before VRChat launches)
+- When `waitForLogs=true`: polls at `pollInterval` until logs appear or context cancels
+- When `waitForLogs=false` (default): returns `ErrNoLogFiles` immediately for backward compatibility
