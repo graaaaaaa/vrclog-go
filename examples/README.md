@@ -331,7 +331,7 @@ Final stats: total=5, matched=3
 - Typed errors - `errors.As(err, &parseErr)` to extract error details
 - `ParseError` - Contains the problematic line and underlying error
 - `LineTooLongError` - Line number, length, and max length information
-- `WatchError.Op` - Identifies which operation failed (`WatchOpFindLatest`, `WatchOpReplay`, `WatchOpParse`, `WatchOpTail`)
+- `WatchError.Op` - Identifies which operation failed (`WatchOpFindLatest`, `WatchOpReplay`, `WatchOpParse`, `WatchOpTail`, `WatchOpRotation`)
 - `WithParseStopOnError(true)` - Controls error propagation vs skipping
 
 **Output example**:

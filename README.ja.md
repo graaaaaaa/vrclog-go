@@ -24,7 +24,7 @@ VRChatのログファイルを解析・監視するGoライブラリ＆CLIツー
 
 ## 動作要件
 
-- Go 1.25以上（`iter.Seq2`イテレータサポートに必要）
+- Go 1.25以上（このプロジェクトの最小バージョン。`iter.Seq2`はGo 1.23で導入されました）
 - Windows（実際のVRChatログ監視用）
 
 ## インストール
@@ -41,15 +41,48 @@ cd vrclog-go
 go build -o vrclog ./cmd/vrclog/
 ```
 
+## クイックスタート
+
+30秒で始める：
+
+```bash
+# 1. インストール
+go install github.com/vrclog/vrclog-go/cmd/vrclog@latest
+
+# 2. VRChatイベントを監視（VRChatが起動している必要があります）
+vrclog tail
+```
+
+ライブラリの使い方や高度な機能については、下記の[ライブラリとしての使用](#ライブラリとしての使用)を参照してください。
+
 ## CLIの使い方
 
 ### コマンド一覧
 
 ```bash
-vrclog tail      # VRChatログを監視（リアルタイム）
-vrclog parse     # VRChatログを解析（バッチ/オフライン）
-vrclog version   # バージョン情報を表示
-vrclog --help    # ヘルプを表示
+vrclog tail       # VRChatログを監視（リアルタイム）
+vrclog parse      # VRChatログを解析（バッチ/オフライン）
+vrclog completion # シェル補完スクリプトを生成
+vrclog version    # バージョン情報を表示
+vrclog --help     # ヘルプを表示
+```
+
+### シェル補完
+
+タブ補完を有効にする：
+
+```bash
+# Bash
+vrclog completion bash > /etc/bash_completion.d/vrclog
+
+# Zsh
+vrclog completion zsh > "${fpath[1]}/_vrclog"
+
+# Fish
+vrclog completion fish > ~/.config/fish/completions/vrclog.fish
+
+# PowerShell
+vrclog completion powershell | Out-String | Invoke-Expression
 ```
 
 ### ストリーミング vs バッチ
@@ -226,11 +259,14 @@ func main() {
 | `WithExcludeTypes(types...)` | 指定したイベントタイプを除外 |
 | `WithReplayFromStart()` | ファイル先頭から読み込み |
 | `WithReplayLastN(n)` | 直近N非空行を読み込んでから監視開始 |
-| `WithReplaySinceTime(t)` | 指定時刻以降のイベントを読み込み |
+| `WithReplaySinceTime(since)` | 指定時刻以降のイベントを読み込み |
 | `WithMaxReplayLines(n)` | ReplayLastNの上限（デフォルト: 10000） |
 | `WithParser(p)` | カスタムパーサーを使用（デフォルトを置換） |
 | `WithParsers(parsers...)` | 複数のパーサーを結合（ChainAllモード） |
 | `WithLogger(logger)` | デバッグ用のslog.Loggerを設定 |
+| `WithWaitForLogs(wait)` | ディレクトリは存在するがログファイルがない場合に待機 |
+| `WithMaxReplayBytes(max)` | リプレイ中に読み込む最大バイト数（デフォルト: 10MB） |
+| `WithMaxReplayLineBytes(max)` | リプレイ中の1行あたりの最大バイト数（デフォルト: 512KB） |
 
 ### Watcherを使った高度な使用法
 
@@ -255,7 +291,7 @@ events, errs, err := watcher.Watch(ctx)
 
 ### オフライン解析（iter.Seq2）
 
-Watcherを起動せずにログファイルを解析。Go 1.25+のイテレータを使用してメモリ効率の良いストリーミング処理が可能:
+Watcherを起動せずにログファイルを解析。Go 1.23+のイテレータを使用してメモリ効率の良いストリーミング処理が可能:
 
 ```go
 // 単一ファイルを解析
@@ -544,7 +580,9 @@ case err := <-errs:
 | `ErrNoLogFiles` | ディレクトリにログファイルがない |
 | `ErrWatcherClosed` | Close後にWatchが呼ばれた |
 | `ErrAlreadyWatching` | Watchが二重に呼ばれた |
+| `ErrReplayLimitExceeded` | リプレイがメモリ制限を超過（maxReplayBytesまたはmaxReplayLineBytes） |
 | `ParseError` | 不正なログ行（元のエラーをラップ） |
+| `LineTooLongError` | ログ行が最大長を超過（512KB） |
 | `WatchError` | Watch操作エラー（操作タイプを含む） |
 
 ## 出力形式
@@ -599,6 +637,20 @@ go test -race ./...
 # カバレッジ付き
 go test -cover ./...
 ```
+
+## FAQ
+
+### Q: Windows以外で使えますか？
+A: いいえ。VRChat PCクライアントはWindowsのみで動作するため、このライブラリもWindows専用です。ただし、ログファイルをコピーすれば他のOSでオフライン解析は可能です。
+
+### Q: ログファイルはどこにありますか？
+A: `%LOCALAPPDATA%Low\VRChat\VRChat\output_log_*.txt` にあります。
+
+### Q: リアルタイム監視が動かないのですが？
+A: VRChatが起動しているか確認してください。`WithWaitForLogs(true)` オプションを使うとログファイルが作成されるまで待機します。
+
+### Q: iter.Seq2とは何ですか？
+A: Go 1.23で導入されたイテレータ型です。メモリ効率の良いストリーミング処理が可能です。詳細は[Go公式ドキュメント](https://go.dev/doc/go1.23)を参照してください。
 
 ## コントリビューション
 

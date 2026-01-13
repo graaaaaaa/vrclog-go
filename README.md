@@ -24,7 +24,7 @@ A Go library and CLI tool for parsing and monitoring VRChat log files.
 
 ## Requirements
 
-- Go 1.25+ (required for `iter.Seq2` iterator support)
+- Go 1.25+ (this project's minimum version; `iter.Seq2` was introduced in Go 1.23)
 - Windows (for actual VRChat log monitoring)
 
 ## Installation
@@ -41,15 +41,48 @@ cd vrclog-go
 go build -o vrclog ./cmd/vrclog/
 ```
 
+## Quick Start
+
+Get started in 30 seconds:
+
+```bash
+# 1. Install
+go install github.com/vrclog/vrclog-go/cmd/vrclog@latest
+
+# 2. Monitor VRChat events (requires VRChat to be running)
+vrclog tail
+```
+
+For library usage and advanced features, see [Library Usage](#library-usage) below.
+
 ## CLI Usage
 
 ### Commands
 
 ```bash
-vrclog tail      # Monitor VRChat logs (real-time)
-vrclog parse     # Parse VRChat logs (batch/offline)
-vrclog version   # Print version information
-vrclog --help    # Show help
+vrclog tail       # Monitor VRChat logs (real-time)
+vrclog parse      # Parse VRChat logs (batch/offline)
+vrclog completion # Generate shell completion scripts
+vrclog version    # Print version information
+vrclog --help     # Show help
+```
+
+### Shell Completion
+
+Enable tab completion for your shell:
+
+```bash
+# Bash
+vrclog completion bash > /etc/bash_completion.d/vrclog
+
+# Zsh
+vrclog completion zsh > "${fpath[1]}/_vrclog"
+
+# Fish
+vrclog completion fish > ~/.config/fish/completions/vrclog.fish
+
+# PowerShell
+vrclog completion powershell | Out-String | Invoke-Expression
 ```
 
 ### Streaming vs Batch
@@ -113,7 +146,7 @@ vrclog tail --replay-since "2024-01-15T12:00:00Z"
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--replay-last` | -1 (disabled) | Replay last N lines (0 = from start) |
+| `--replay-last` | -1 (disabled) | Replay last N non-empty lines (0 = from start) |
 | `--replay-since` | | Replay since timestamp (RFC3339) |
 
 Note: `--replay-last` and `--replay-since` cannot be used together.
@@ -226,11 +259,14 @@ func main() {
 | `WithExcludeTypes(types...)` | Filter out these event types |
 | `WithReplayFromStart()` | Read from file start |
 | `WithReplayLastN(n)` | Read last N non-empty lines before tailing |
-| `WithReplaySinceTime(t)` | Read events since timestamp |
+| `WithReplaySinceTime(since)` | Read events since timestamp |
 | `WithMaxReplayLines(n)` | Limit for ReplayLastN (default: 10000) |
 | `WithParser(p)` | Use custom parser (replaces default) |
 | `WithParsers(parsers...)` | Combine multiple parsers (ChainAll mode) |
 | `WithLogger(logger)` | Set slog.Logger for debug output |
+| `WithWaitForLogs(wait)` | Wait for log files to appear if directory exists but is empty |
+| `WithMaxReplayBytes(max)` | Max bytes to read during replay (default: 10MB) |
+| `WithMaxReplayLineBytes(max)` | Max bytes per line during replay (default: 512KB) |
 
 ### Advanced Usage with Watcher
 
@@ -544,7 +580,9 @@ case err := <-errs:
 | `ErrNoLogFiles` | No log files in directory |
 | `ErrWatcherClosed` | Watch called after Close |
 | `ErrAlreadyWatching` | Watch called twice |
+| `ErrReplayLimitExceeded` | Replay exceeded memory limits (maxReplayBytes or maxReplayLineBytes) |
 | `ParseError` | Malformed log line (wraps original error) |
+| `LineTooLongError` | Log line exceeds maximum length (512KB) |
 | `WatchError` | Watch operation error (includes operation type) |
 
 ## Output Format
@@ -599,6 +637,20 @@ go test -race ./...
 # Run with coverage
 go test -cover ./...
 ```
+
+## FAQ
+
+### Q: Can I use this on non-Windows platforms?
+A: No. VRChat PC client only runs on Windows, so this library is Windows-specific. However, you can copy log files to other platforms for offline parsing.
+
+### Q: Where are the log files located?
+A: `%LOCALAPPDATA%Low\VRChat\VRChat\output_log_*.txt` on Windows.
+
+### Q: Real-time monitoring doesn't work. What should I check?
+A: Ensure VRChat is running. Use the `WithWaitForLogs(true)` option to wait for log files to be created.
+
+### Q: What is `iter.Seq2`?
+A: It's an iterator type introduced in Go 1.23, enabling memory-efficient streaming. See [Go's official documentation](https://go.dev/doc/go1.23) for details.
 
 ## Contributing
 
