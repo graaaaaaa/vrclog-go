@@ -32,6 +32,7 @@ type compiledPattern struct {
 	eventType  event.Type
 	regex      *regexp.Regexp
 	groupNames []string // Named capture group names (excluding empty string at index 0)
+	groupIndex []int    // Indices of named groups in matches array (parallel to groupNames)
 }
 
 // NewRegexParser creates a RegexParser from a PatternFile.
@@ -72,14 +73,17 @@ func NewRegexParser(pf *PatternFile) (*RegexParser, error) {
 			}
 		}
 
-		// Extract named capture group names.
+		// Extract named capture group names and their indices.
 		// Note: SubexpNames()[0] is always an empty string (the whole match),
 		// so we skip it when collecting named groups.
+		// We store both the names and indices to avoid calling SubexpNames() on every match.
 		allNames := re.SubexpNames()
 		groupNames := make([]string, 0, len(allNames)-1)
+		groupIndex := make([]int, 0, len(allNames)-1)
 		for j := 1; j < len(allNames); j++ {
 			if allNames[j] != "" {
 				groupNames = append(groupNames, allNames[j])
+				groupIndex = append(groupIndex, j)
 			}
 		}
 
@@ -88,6 +92,7 @@ func NewRegexParser(pf *PatternFile) (*RegexParser, error) {
 			eventType:  event.Type(p.EventType),
 			regex:      re,
 			groupNames: groupNames,
+			groupIndex: groupIndex,
 		})
 	}
 
@@ -151,12 +156,12 @@ func (p *RegexParser) ParseLine(ctx context.Context, line string) (vrclog.ParseR
 		// Extract named capture groups into Data field
 		if len(cp.groupNames) > 0 {
 			data := make(map[string]string, len(cp.groupNames))
-			// Use SubexpNames() to maintain 1:1 correspondence with matches indices.
+			// Use pre-computed groupIndex to avoid calling SubexpNames() on every match.
 			// This correctly handles patterns with mixed unnamed and named capture groups.
-			allNames := cp.regex.SubexpNames()
-			for i := 1; i < len(allNames); i++ {
-				if allNames[i] != "" && i < len(matches) {
-					data[allNames[i]] = matches[i]
+			for i, name := range cp.groupNames {
+				idx := cp.groupIndex[i]
+				if idx < len(matches) {
+					data[name] = matches[idx]
 				}
 			}
 			ev.Data = data

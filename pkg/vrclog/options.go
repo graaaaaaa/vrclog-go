@@ -74,6 +74,16 @@ func (c *watchConfig) validate() error {
 		return fmt.Errorf("poll interval must be positive, got %v", c.pollInterval)
 	}
 
+	// Validate maxReplayBytes
+	if c.maxReplayBytes < 0 {
+		return fmt.Errorf("maxReplayBytes must be non-negative, got %d", c.maxReplayBytes)
+	}
+
+	// Validate maxReplayLineBytes
+	if c.maxReplayLineBytes < 0 {
+		return fmt.Errorf("maxReplayLineBytes must be non-negative, got %d", c.maxReplayLineBytes)
+	}
+
 	return nil
 }
 

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
+	"github.com/vrclog/vrclog-go/internal/safefile"
 	"github.com/vrclog/vrclog-go/internal/tailer"
 )
 
@@ -319,7 +319,7 @@ func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- E
 
 // replayLastN reads and processes the last N lines from the log file.
 func (w *Watcher) replayLastN(ctx context.Context, logFile string, eventCh chan<- Event, errCh chan<- error) error {
-	lines, err := readLastNLines(logFile, w.cfg.replay.LastN, w.cfg.maxReplayBytes, w.cfg.maxReplayLineBytes)
+	lines, err := readLastNLines(ctx, logFile, w.cfg.replay.LastN, w.cfg.maxReplayBytes, w.cfg.maxReplayLineBytes)
 	if err != nil {
 		return err
 	}
@@ -338,23 +338,21 @@ func (w *Watcher) replayLastN(ctx context.Context, logFile string, eventCh chan<
 // readLastNLines reads the last N non-empty lines from a file using backward chunk scanning.
 // Returns lines in order (oldest first).
 //
+// The context is checked between chunk reads to allow cancellation of long-running replays.
+//
 // Memory limits:
 //   - maxBytes: Maximum total bytes to read (0 = unlimited)
 //   - maxLineBytes: Maximum bytes per single line (0 = unlimited)
 //
 // Returns ErrReplayLimitExceeded if limits are exceeded.
-func readLastNLines(filepath string, n int, maxBytes int, maxLineBytes int) ([]string, error) {
-	file, err := os.Open(filepath)
+// Returns ctx.Err() if the context is cancelled during replay.
+func readLastNLines(ctx context.Context, filepath string, n int, maxBytes int, maxLineBytes int) ([]string, error) {
+	file, stat, err := safefile.OpenRegular(filepath)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	// Get file size
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
 	fileSize := stat.Size()
 
 	if fileSize == 0 {
@@ -371,6 +369,11 @@ func readLastNLines(filepath string, n int, maxBytes int, maxLineBytes int) ([]s
 	totalBytes := 0   // Total bytes read
 
 	for len(lines) < n && offset > 0 {
+		// Check for context cancellation between chunk reads
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		// Calculate read position
 		readSize := int64(chunkSize)
 		if offset < readSize {
@@ -378,18 +381,24 @@ func readLastNLines(filepath string, n int, maxBytes int, maxLineBytes int) ([]s
 		}
 		offset -= readSize
 
-		// Check total bytes limit
-		if maxBytes > 0 && totalBytes+int(readSize)+len(carry) > maxBytes {
+		// Check total bytes limit (only count new bytes being read, not carry)
+		if maxBytes > 0 && totalBytes+int(readSize) > maxBytes {
 			return nil, ErrReplayLimitExceeded
 		}
 
 		// Read chunk
 		chunk := make([]byte, readSize)
-		_, err := file.ReadAt(chunk, offset)
-		if err != nil {
+		bytesRead, err := file.ReadAt(chunk, offset)
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
-		totalBytes += int(readSize)
+		if bytesRead == 0 {
+			// No data read, stop
+			break
+		}
+		// Use only the bytes actually read
+		chunk = chunk[:bytesRead]
+		totalBytes += bytesRead
 
 		// Append carry to chunk (carry comes after chunk in file order)
 		chunk = append(chunk, carry...)
@@ -433,44 +442,72 @@ func readLastNLines(filepath string, n int, maxBytes int, maxLineBytes int) ([]s
 
 // extractLinesBackward extracts complete lines from a buffer by scanning backwards.
 // Returns lines in order (oldest first) and the carry (incomplete line at buffer start).
-// If maxLineBytes > 0, checks that no single line exceeds the limit.
+// If maxLineBytes > 0, checks that no single line exceeds the limit (only for returned lines).
 //
-// This function scans the ENTIRE buffer to find all complete lines, then returns
-// only the last maxLines. The carry is the incomplete line at the start of the buffer.
+// This function uses a 2-pass approach:
+//  1. Find all line boundaries in the buffer
+//  2. Keep only the last maxLines, then check length limits only for those lines
+//
+// This prevents false positives where old lines (outside the requested N) are long
+// but don't affect the actual result.
 func extractLinesBackward(buffer []byte, maxLines int, maxLineBytes int) ([]string, []byte) {
-	var lines []string
+	// First pass: find line boundaries scanning backwards (newest first)
+	type lineSpan struct {
+		start, end int // indices into buffer
+	}
+	var spans []lineSpan
 	end := len(buffer)
+	nonEmptyCount := 0
 
-	// Scan backwards for ALL newlines in the buffer
 	for i := len(buffer) - 1; i >= 0; i-- {
 		if buffer[i] == '\n' {
-			// Found a complete line
-			lineBytes := buffer[i+1 : end]
+			// Found a line from i+1 to end
+			span := lineSpan{start: i + 1, end: end}
+			spans = append(spans, span)
+			end = i // Update end for next line
 
-			// Check line length limit
-			if maxLineBytes > 0 && len(lineBytes) > maxLineBytes {
-				// Line too long, but we need to continue to find valid lines
-				// Return what we have and signal error through nil carry
-				return lines, nil
+			// Count non-empty lines (empty spans will be filtered out later)
+			// Check if this span would produce a non-empty line
+			if span.start < span.end {
+				lineBytes := buffer[span.start:span.end]
+				// Quick check: not empty after removing trailing \r
+				if len(lineBytes) > 0 && (len(lineBytes) != 1 || lineBytes[0] != '\r') {
+					nonEmptyCount++
+					// Stop when we have enough non-empty lines
+					if nonEmptyCount == maxLines {
+						break
+					}
+				}
 			}
-
-			line := string(lineBytes)
-			// Remove trailing \r for CRLF
-			if len(line) > 0 && line[len(line)-1] == '\r' {
-				line = line[:len(line)-1]
-			}
-			// Skip empty lines
-			if line != "" {
-				// Prepend to lines (we're scanning backwards)
-				lines = append([]string{line}, lines...)
-			}
-			end = i
 		}
 	}
 
-	// Keep only the last maxLines
-	if len(lines) > maxLines {
-		lines = lines[len(lines)-maxLines:]
+	// Reverse spans to get oldest-first order (since we scanned backwards)
+	for i, j := 0, len(spans)-1; i < j; i, j = i+1, j-1 {
+		spans[i], spans[j] = spans[j], spans[i]
+	}
+
+	// Second pass: convert spans to strings and check length limits
+	// Only check lines that will actually be returned
+	var lines []string
+	for _, span := range spans {
+		lineBytes := buffer[span.start:span.end]
+
+		// Check line length limit ONLY for lines being returned
+		if maxLineBytes > 0 && len(lineBytes) > maxLineBytes {
+			// Line too long, signal error through nil carry
+			return nil, nil
+		}
+
+		line := string(lineBytes)
+		// Remove trailing \r for CRLF
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+		// Skip empty lines
+		if line != "" {
+			lines = append(lines, line)
+		}
 	}
 
 	// Carry is the incomplete line at the start (before the first newline)

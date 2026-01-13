@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/vrclog/vrclog-go/internal/safefile"
 )
 
 // EnvLogDir is the environment variable name for specifying log directory.
@@ -58,7 +60,7 @@ func FindLogDir(explicit string) (string, error) {
 		if resolved := resolveAndValidateLogDir(explicit); resolved != "" {
 			return resolved, nil
 		}
-		return "", fmt.Errorf("%w: specified directory is invalid or contains no log files", ErrLogDirNotFound)
+		return "", fmt.Errorf("%w: specified directory does not exist or is not accessible", ErrLogDirNotFound)
 	}
 
 	// 2. Check environment variable
@@ -66,7 +68,7 @@ func FindLogDir(explicit string) (string, error) {
 		if resolved := resolveAndValidateLogDir(envDir); resolved != "" {
 			return resolved, nil
 		}
-		return "", fmt.Errorf("%w: %s environment variable points to invalid directory", ErrLogDirNotFound, EnvLogDir)
+		return "", fmt.Errorf("%w: %s environment variable points to a directory that does not exist or is not accessible", ErrLogDirNotFound, EnvLogDir)
 	}
 
 	// 3. Auto-detect
@@ -94,6 +96,14 @@ type logCandidate struct {
 // Security: This function caches stat results to avoid TOCTOU race conditions
 // where log files could be deleted between filtering and sorting.
 func FindLatestLogFile(dir string) (string, error) {
+	// Pre-check: verify directory is accessible before globbing
+	// This catches permission errors that filepath.Glob might hide
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return "", fmt.Errorf("accessing log directory: %w", err)
+	}
+	dirFile.Close()
+
 	pattern := filepath.Join(dir, "output_log_*.txt")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -104,18 +114,18 @@ func FindLatestLogFile(dir string) (string, error) {
 		return "", ErrNoLogFiles
 	}
 
-	// Stat files once and cache results to avoid race conditions
+	// Open and stat files to avoid TOCTOU race conditions
+	// This prevents symlink attacks and ensures we only process regular files
 	candidates := make([]logCandidate, 0, len(matches))
 	for _, m := range matches {
-		info, err := os.Lstat(m)
+		f, info, err := safefile.OpenRegular(m)
 		if err != nil {
-			// Skip files that can't be stat'd (deleted, permission issues, etc.)
+			// Skip files that can't be opened or aren't regular
+			// (deleted, permission issues, symlinks, FIFOs, etc.)
 			continue
 		}
-		// Also skip non-regular files (directories, symlinks, etc.)
-		if !info.Mode().IsRegular() {
-			continue
-		}
+		f.Close() // Close immediately - we only needed the stat info
+
 		candidates = append(candidates, logCandidate{
 			path:    m,
 			modTime: info.ModTime().UnixNano(),

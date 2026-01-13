@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"iter"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
+	"github.com/vrclog/vrclog-go/internal/safefile"
 )
 
 // ParseLine parses a single VRChat log line into an Event.
@@ -84,19 +86,62 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 		}
 		defer file.Close()
 
-		scanner := bufio.NewScanner(file)
-		// Increase buffer size for long lines
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 512*1024)
+		// Use bufio.Reader instead of Scanner to handle lines that exceed buffer limits
+		const maxLineLength = 512 * 1024 // 512KB max per line
+		reader := bufio.NewReaderSize(file, 64*1024)
+		lineNumber := 0
 
-		for scanner.Scan() {
+		for {
+			lineNumber++
+
 			// Context cancellation check
 			if err := ctx.Err(); err != nil {
 				yield(Event{}, err)
 				return
 			}
 
-			line := scanner.Text()
+			// Read line (may be partial if exceeds buffer)
+			lineBytes, isPrefix, err := reader.ReadLine()
+			if err != nil {
+				if err == io.EOF {
+					break // End of file
+				}
+				yield(Event{}, err)
+				return
+			}
+
+			// Handle lines that exceed buffer
+			var line string
+			if isPrefix {
+				// Line is too long - read and discard rest of line
+				length := len(lineBytes)
+				for isPrefix {
+					moreLine, morePrefix, readErr := reader.ReadLine()
+					if readErr != nil {
+						if readErr == io.EOF {
+							break
+						}
+						yield(Event{}, readErr)
+						return
+					}
+					length += len(moreLine)
+					isPrefix = morePrefix
+				}
+
+				// Handle long line based on stopOnError setting
+				if cfg.stopOnError {
+					yield(Event{}, &LineTooLongError{
+						LineNumber: lineNumber,
+						Length:     length,
+						MaxLength:  maxLineLength,
+					})
+					return
+				}
+				// Skip long line and continue (don't parse it)
+				continue
+			}
+
+			line = string(lineBytes)
 			result, err := cfg.parser.ParseLine(ctx, line)
 
 			// Process events even if there's an error (e.g., ChainContinueOnError mode)
@@ -193,11 +238,7 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 				}
 			}
 		}
-
-		// Check for scanner errors
-		if err := scanner.Err(); err != nil {
-			yield(Event{}, err)
-		}
+		// No need to check for reader errors - they're returned directly from ReadLine
 	}
 }
 
@@ -451,6 +492,14 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 // listLogFiles returns all VRChat log files in the directory,
 // sorted by modification time (oldest first).
 func listLogFiles(dir string) ([]string, error) {
+	// Pre-check: verify directory is accessible before globbing
+	// This catches permission errors that filepath.Glob might hide
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	dirFile.Close()
+
 	pattern := filepath.Join(dir, "output_log_*.txt")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -469,19 +518,17 @@ func listLogFiles(dir string) ([]string, error) {
 	files := make([]fileInfo, 0, len(matches))
 	var firstErr error
 	for _, path := range matches {
-		info, err := os.Lstat(path)
+		f, info, err := safefile.OpenRegular(path)
 		if err != nil {
 			// Remember first error for potential error reporting
-			if firstErr == nil {
+			// Skip ErrNotRegularFile since it's expected (not a real error)
+			if firstErr == nil && !errors.Is(err, safefile.ErrNotRegularFile) {
 				firstErr = err
 			}
-			continue // Skip files we can't stat
+			continue // Skip files we can't open or aren't regular
 		}
-		// Security: reject non-regular files (FIFO, device, socket, symlink)
-		// to prevent DoS attacks via blocking reads or infinite streams
-		if !info.Mode().IsRegular() {
-			continue
-		}
+		f.Close() // Close immediately - we only needed the stat info
+
 		files = append(files, fileInfo{path: path, modTime: info.ModTime().UnixNano()})
 	}
 

@@ -72,7 +72,8 @@ pkg/vrclog/           # Public API - users import this
 internal/             # Implementation details
 ├── parser/           # Log line parsing with regex patterns (built-in events)
 ├── tailer/           # File tailing wrapper around nxadm/tail
-└── logfinder/        # Log directory/file detection
+├── logfinder/        # Log directory/file detection
+└── safefile/         # Security-hardened file operations (TOCTOU protection)
 
 cmd/vrclog/           # CLI entry point
 ├── main.go           # Root command, version command
@@ -171,15 +172,16 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - **Read-only tool**: This library only reads log files, never writes
 - **No external command execution**: No `os/exec` usage
 - **Symlink resolution**: `FindLogDir()` uses `filepath.EvalSymlinks()` to prevent symlink attacks (works with Windows Junctions in Go 1.20+). As of recent updates, symlink resolution failures are treated as invalid directories (no fallback) to prevent security issues with broken/malicious symlinks
-- **Symlink rejection**: `listLogFiles()` and `FindLatestLogFile()` use `os.Lstat()` instead of `os.Stat()` to properly reject symlinks without following them. This prevents attackers from using symlinks to point to FIFO/device files that could cause DoS attacks
+- **TOCTOU protection**: `internal/safefile.OpenRegular()` mitigates time-of-check-time-of-use race conditions by using `os.Lstat()` followed by `os.Open()` and `f.Stat()` to verify the file wasn't replaced with a symlink/FIFO/device between checks. Used by `FindLatestLogFile()`, `listLogFiles()`, and `readLastNLines()`
 - **UTF-8 sanitization**: `internal/parser.Parse()` sanitizes invalid UTF-8 sequences using `strings.ToValidUTF8()` to prevent issues in JSON output
 - **Error message sanitization**: Pattern loader sanitizes paths from `os.PathError` to prevent information leakage
 - **ReplayLastN limit**: Default maximum of 10000 lines (`DefaultMaxReplayLastN`) to prevent memory exhaustion; configurable via `WithMaxReplayLines()`
 - **Poll interval validation**: `WithPollInterval(0)` returns an error - poll intervals must be positive to prevent panics in `time.NewTicker()`
-- **FIFO/Device DoS protection**: `pattern.Load()` rejects non-regular files (FIFO, device, socket) to prevent hang/OOM attacks. Uses `os.Open()` + `f.Stat()` + `io.LimitReader` to avoid TOCTOU races. `listLogFiles()` and `FindLatestLogFile()` also reject non-regular files using `IsRegular()` check
+- **Negative value validation**: `watchConfig.validate()` rejects negative values for `maxReplayBytes` and `maxReplayLineBytes` (0 means unlimited)
+- **FIFO/Device DoS protection**: `pattern.Load()` and `safefile.OpenRegular()` reject non-regular files (FIFO, device, socket, symlink) to prevent hang/OOM attacks
 - **Pattern file size limits**: 1MB max file size, 512 byte max regex pattern length (ReDoS protection)
-- **Race condition protection**: `FindLatestLogFile()` caches stat results to prevent nil-deref panics when log files are deleted during sorting
-- **Context cancellation**: `ParseFile()` and `ParseDir()` properly detect and propagate context cancellation without wrapping it in `ParseError`, allowing callers to use `errors.Is(err, context.Canceled)` for detection
+- **Directory accessibility checks**: `FindLatestLogFile()` and `listLogFiles()` verify directory accessibility before calling `filepath.Glob()` to detect permission errors that Glob might hide
+- **Context cancellation**: `ParseFile()` and `ParseDir()` properly detect and propagate context cancellation without wrapping it in `ParseError`. `readLastNLines()` checks context between chunk reads for long-running replays
 
 ## Testing Notes
 
@@ -192,7 +194,7 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 ## Implementation Notes
 
 **Pattern Package**:
-- `pattern.RegexParser` uses `SubexpNames()` directly to maintain 1:1 index correspondence with `FindStringSubmatch()` results
+- `pattern.RegexParser` caches `SubexpNames()` indices during construction in `compiledPattern.groupIndex` to avoid repeated allocations on every match
 - Correctly handles patterns with mixed unnamed `(\d+)` and named `(?P<name>\w+)` capture groups
 - `Event.Data` is `nil` when no named capture groups exist (not an empty map)
 - Validation happens in `Validate()` for schema checks and `NewRegexParser()` for regex compilation
@@ -207,6 +209,13 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - `WithParser(nil)`, `WithParseParser(nil)`, `WithDirParser(nil)` have no effect - the default parser remains active. This behavior is documented in function comments
 - **ChainContinueOnError behavior**: When a parser errors but produces events, both `ParseFile` and `Watcher.processLine` now emit the events before reporting the error. This ensures partial success from multi-parser chains is not lost
 
+**ParseFile Long Line Handling**:
+- Uses `bufio.Reader` instead of `bufio.Scanner` to properly handle lines exceeding 512KB
+- Long lines are read and discarded (not parsed) to allow parsing to continue on subsequent lines
+- With `WithParseStopOnError(true)`: returns `LineTooLongError` and stops parsing
+- Default behavior: skips long lines silently and continues parsing
+- This prevents the old `bufio.Scanner` behavior where a single long line would stop all parsing
+
 **API Limitations**:
 - `WatchWithOptions()` does not return the underlying Watcher, so callers cannot call `Close()` for synchronous shutdown. Use `NewWatcherWithOptions()` + `Watcher.Watch()` for more control
 - `WithParseUntil()` assumes timestamps are monotonically increasing. Out-of-order timestamps may cause events to be skipped
@@ -215,6 +224,10 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - `readLastNLines()` uses backward chunk scanning (4KB chunks) with carry buffer to prevent partial line corruption
 - Memory limits enforced via `WithMaxReplayBytes(max int)` (default: 10MB) and `WithMaxReplayLineBytes(max int)` (default: 512KB)
 - Returns `ErrReplayLimitExceeded` if limits are exceeded during replay
+- `maxReplayLineBytes` only checks lines that will actually be returned (not old lines outside the requested N)
+- `maxReplayBytes` correctly counts only newly read bytes (not the carry buffer which was already counted)
+- Handles partial reads from `ReadAt` when `io.EOF` is returned with valid data
+- Accepts `context.Context` and checks cancellation between chunk reads
 - O(bytes read) complexity instead of naive O(n²) approach
 
 **Watcher Log Directory Handling**:

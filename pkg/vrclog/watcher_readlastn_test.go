@@ -1,6 +1,7 @@
 package vrclog
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ func TestReadLastNLines_Normal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 3, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 3, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,7 +41,7 @@ func TestReadLastNLines_EmptyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 10, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 10, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestReadLastNLines_FewerThanN(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 10, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 10, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestReadLastNLines_ExactlyN(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 3, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 3, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestReadLastNLines_NoTrailingNewline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 2, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 2, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestReadLastNLines_EmptyLinesMixed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 10, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 10, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +163,7 @@ func TestReadLastNLines_CRLF(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 2, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 2, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestReadLastNLines_MaxBytesExceeded(t *testing.T) {
 	}
 
 	// Set maxBytes to 50 bytes (less than file size)
-	_, err := readLastNLines(logFile, 10, 50, 0)
+	_, err := readLastNLines(context.Background(), logFile, 10, 50, 0)
 	if err != ErrReplayLimitExceeded {
 		t.Errorf("expected ErrReplayLimitExceeded, got %v", err)
 	}
@@ -212,7 +213,7 @@ func TestReadLastNLines_MaxLineBytesExceeded(t *testing.T) {
 	}
 
 	// Set maxLineBytes to 512 bytes
-	_, err := readLastNLines(logFile, 10, 0, 512)
+	_, err := readLastNLines(context.Background(), logFile, 10, 0, 512)
 	if err != ErrReplayLimitExceeded {
 		t.Errorf("expected ErrReplayLimitExceeded, got %v", err)
 	}
@@ -229,7 +230,7 @@ func TestReadLastNLines_GiantLineNoNewline(t *testing.T) {
 	}
 
 	// Set maxLineBytes to 5000 bytes
-	_, err := readLastNLines(logFile, 1, 0, 5000)
+	_, err := readLastNLines(context.Background(), logFile, 1, 0, 5000)
 	if err != ErrReplayLimitExceeded {
 		t.Errorf("expected ErrReplayLimitExceeded, got %v", err)
 	}
@@ -251,7 +252,7 @@ func TestReadLastNLines_MultipleChunks(t *testing.T) {
 	}
 
 	// Request last 10 lines
-	result, err := readLastNLines(logFile, 10, 0, 0)
+	result, err := readLastNLines(context.Background(), logFile, 10, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -270,7 +271,7 @@ func TestReadLastNLines_MultipleChunks(t *testing.T) {
 }
 
 func TestReadLastNLines_FileNotFound(t *testing.T) {
-	_, err := readLastNLines("/nonexistent/file.txt", 10, 0, 0)
+	_, err := readLastNLines(context.Background(), "/nonexistent/file.txt", 10, 0, 0)
 	if err == nil {
 		t.Error("expected error for nonexistent file")
 	}
@@ -291,7 +292,7 @@ func TestReadLastNLines_VRChatLogFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, err := readLastNLines(logFile, 2, 0, 0)
+	lines, err := readLastNLines(context.Background(), logFile, 2, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
