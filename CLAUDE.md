@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 vrclog-go is a Go library and CLI for parsing and monitoring VRChat PC log files. It extracts structured events (player join/leave, world join) from VRChat's `output_log_*.txt` files on Windows.
 
+**Requirements**: Go 1.25+ (uses `iter.Seq2` iterators introduced in Go 1.23)
+
 ## API Policy
 
 vrclog-go follows [Semantic Versioning](https://semver.org/). While the module is in the **v0.x.x** series:
@@ -98,6 +100,12 @@ watcher, err := vrclog.NewWatcherWithOptions(
 - `NewWatcherWithOptions(opts...)` - validates options, finds log directory (returns error on failure)
 - `watcher.Watch(ctx)` - starts goroutines, returns event/error channels
 
+**Iterator-based Parsing** (Go 1.23+ `iter.Seq2`):
+- `ParseFile(ctx, path, opts...)` returns `iter.Seq2[Event, error]` for memory-efficient streaming
+- `ParseDir(ctx, opts...)` yields events from multiple files in chronological order
+- `ParseFileAll(ctx, path, opts...)` convenience function that collects all events into a slice
+- Iterators support early termination via `break` and proper cleanup via `defer`
+
 **Parser Interface** (Phase 1a):
 - `Parser` interface allows pluggable log line parsing
 - `DefaultParser` wraps the built-in `internal/parser` for standard VRChat events
@@ -163,13 +171,15 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - **Read-only tool**: This library only reads log files, never writes
 - **No external command execution**: No `os/exec` usage
 - **Symlink resolution**: `FindLogDir()` uses `filepath.EvalSymlinks()` to prevent symlink attacks (works with Windows Junctions in Go 1.20+). As of recent updates, symlink resolution failures are treated as invalid directories (no fallback) to prevent security issues with broken/malicious symlinks
+- **Symlink rejection**: `listLogFiles()` and `FindLatestLogFile()` use `os.Lstat()` instead of `os.Stat()` to properly reject symlinks without following them. This prevents attackers from using symlinks to point to FIFO/device files that could cause DoS attacks
 - **UTF-8 sanitization**: `internal/parser.Parse()` sanitizes invalid UTF-8 sequences using `strings.ToValidUTF8()` to prevent issues in JSON output
 - **Error message sanitization**: Pattern loader sanitizes paths from `os.PathError` to prevent information leakage
 - **ReplayLastN limit**: Default maximum of 10000 lines (`DefaultMaxReplayLastN`) to prevent memory exhaustion; configurable via `WithMaxReplayLines()`
 - **Poll interval validation**: `WithPollInterval(0)` returns an error - poll intervals must be positive to prevent panics in `time.NewTicker()`
-- **FIFO/Device DoS protection**: `pattern.Load()` rejects non-regular files (FIFO, device, socket) to prevent hang/OOM attacks. Uses `os.Open()` + `f.Stat()` + `io.LimitReader` to avoid TOCTOU races
+- **FIFO/Device DoS protection**: `pattern.Load()` rejects non-regular files (FIFO, device, socket) to prevent hang/OOM attacks. Uses `os.Open()` + `f.Stat()` + `io.LimitReader` to avoid TOCTOU races. `listLogFiles()` and `FindLatestLogFile()` also reject non-regular files using `IsRegular()` check
 - **Pattern file size limits**: 1MB max file size, 512 byte max regex pattern length (ReDoS protection)
 - **Race condition protection**: `FindLatestLogFile()` caches stat results to prevent nil-deref panics when log files are deleted during sorting
+- **Context cancellation**: `ParseFile()` and `ParseDir()` properly detect and propagate context cancellation without wrapping it in `ParseError`, allowing callers to use `errors.Is(err, context.Canceled)` for detection
 
 ## Testing Notes
 
@@ -200,3 +210,7 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 **API Limitations**:
 - `WatchWithOptions()` does not return the underlying Watcher, so callers cannot call `Close()` for synchronous shutdown. Use `NewWatcherWithOptions()` + `Watcher.Watch()` for more control
 - `WithParseUntil()` assumes timestamps are monotonically increasing. Out-of-order timestamps may cause events to be skipped
+
+**Known Issues**:
+- `readLastNLines()` in `watcher.go:312` has potential for partial line corruption and memory exhaustion with large files. This is a complex issue deferred for future refactoring
+- `ErrLogDirNotFound` conflates "directory doesn't exist" with "directory exists but has no log files". This distinction requires API changes and is deferred until v1.0
