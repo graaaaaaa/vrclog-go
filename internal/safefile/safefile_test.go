@@ -71,7 +71,6 @@ func TestOpenRegular_RejectsSymlink(t *testing.T) {
 	}
 }
 
-
 func TestOpenRegular_RejectsDirectory(t *testing.T) {
 	dir := t.TempDir()
 
