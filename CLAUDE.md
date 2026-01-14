@@ -139,7 +139,7 @@ watcher, err := vrclog.NewWatcherWithOptions(
 - `pattern.RegexParser` allows users to define custom events via YAML patterns
 - YAML files define patterns with `id`, `event_type`, and `regex` fields
 - Named capture groups `(?P<name>...)` populate `Event.Data` map
-- Pattern files support ReDoS protection (512 byte limit per pattern, 1MB file size limit)
+- Pattern files support ReDoS protection (512 byte limit per pattern, 1MB file size limit, 1000 pattern max count)
 - Correctly handles mixed unnamed `(\d+)` and named `(?P<name>\w+)` capture groups
 - Example:
   ```yaml
@@ -222,7 +222,7 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - **Poll interval validation**: `WithPollInterval(0)` returns an error - poll intervals must be positive to prevent panics in `time.NewTicker()`
 - **Negative value validation**: `watchConfig.validate()` rejects negative values for `maxReplayBytes` and `maxReplayLineBytes` (0 means unlimited)
 - **FIFO/Device DoS protection**: `pattern.Load()` and `safefile.OpenRegular()` reject non-regular files (FIFO, device, socket, symlink) to prevent hang/OOM attacks
-- **Pattern file size limits**: 1MB max file size, 512 byte max regex pattern length (ReDoS protection)
+- **Pattern file size limits**: 1MB max file size, 512 byte max regex pattern length, 1000 pattern max count (ReDoS and CPU exhaustion protection)
 - **Directory accessibility checks**: `FindLatestLogFile()` and `listLogFiles()` verify directory accessibility before calling `filepath.Glob()` to detect permission errors that Glob might hide
 - **Context cancellation**: `ParseFile()` and `ParseDir()` properly detect and propagate context cancellation without wrapping it in `ParseError`. `readLastNLines()` checks context between chunk reads for long-running replays
 
@@ -233,6 +233,8 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - Use `time.Local` consistently: both `time.ParseInLocation(..., time.Local)` and `time.Date(..., time.Local)` to avoid timezone-dependent test failures
 - Golden file tests in `cmd/vrclog/format_test.go`: update with `go test ./cmd/vrclog -run TestOutputEvent_Golden -update-golden`
 - When testing capture groups in `pattern.RegexParser`, test both named-only patterns and mixed unnamed/named patterns
+- **Error comparison**: Use `errors.Is()` instead of `==` when comparing sentinel errors for future-proofing against error wrapping
+- **Log rotation tests**: See `watcher_rotation_test.go` for examples of testing file rotation scenarios with `WithPollInterval()` set to short durations (100ms) for faster test execution
 
 ## Implementation Notes
 
@@ -241,7 +243,8 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - Correctly handles patterns with mixed unnamed `(\d+)` and named `(?P<name>\w+)` capture groups
 - `Event.Data` is `nil` when no named capture groups exist (not an empty map)
 - Validation happens in `Validate()` for schema checks and `NewRegexParser()` for regex compilation
-- **Validation enforcement**: `NewRegexParser()` always calls `pf.Validate()` to enforce security constraints (max pattern length, required fields, etc.) even when `PatternFile` is constructed programmatically
+- **Validation enforcement**: `NewRegexParser()` always calls `pf.Validate()` to enforce security constraints (max pattern length, max pattern count, required fields, etc.) even when `PatternFile` is constructed programmatically
+- **Pattern count limit**: `MaxPatternCount = 1000` prevents CPU exhaustion attacks via files with thousands of patterns
 - **Error unwrapping**: `PatternError` implements `Unwrap()` to expose underlying regex compile errors for `errors.Is()` and `errors.As()` support
 
 **Parser Interface**:
@@ -279,3 +282,15 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - `WithWaitForLogs(bool)` option allows waiting for log files to appear (useful for starting watcher before VRChat launches)
 - When `waitForLogs=true`: polls at `pollInterval` until logs appear or context cancels
 - When `waitForLogs=false` (default): returns `ErrNoLogFiles` immediately for backward compatibility
+
+**Watcher Log Rotation**:
+- Watcher detects log rotation by checking for newer log files at `pollInterval` intervals
+- When rotation is detected, the watcher creates a new tailer for the newer file BEFORE stopping the old tailer
+- This ensures continuity: if the new tailer fails to open, the watcher continues monitoring the old file
+- Log rotation is tested in `watcher_rotation_test.go` with scenarios including rotation failures and multiple rotations
+
+**Watcher Error Channel**:
+- Error channel has a buffer size of 16 to prevent blocking the watcher goroutine
+- If errors are produced faster than consumed, additional errors are silently dropped (documented in API)
+- This is a deliberate design trade-off to prevent deadlock
+- Consumers should process errors promptly to avoid drops
