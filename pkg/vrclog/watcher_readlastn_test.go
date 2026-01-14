@@ -2,6 +2,7 @@ package vrclog
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,7 +197,7 @@ func TestReadLastNLines_MaxBytesExceeded(t *testing.T) {
 
 	// Set maxBytes to 50 bytes (less than file size)
 	_, err := readLastNLines(context.Background(), logFile, 10, 50, 0)
-	if err != ErrReplayLimitExceeded {
+	if !errors.Is(err, ErrReplayLimitExceeded) {
 		t.Errorf("expected ErrReplayLimitExceeded, got %v", err)
 	}
 }
@@ -214,7 +215,7 @@ func TestReadLastNLines_MaxLineBytesExceeded(t *testing.T) {
 
 	// Set maxLineBytes to 512 bytes
 	_, err := readLastNLines(context.Background(), logFile, 10, 0, 512)
-	if err != ErrReplayLimitExceeded {
+	if !errors.Is(err, ErrReplayLimitExceeded) {
 		t.Errorf("expected ErrReplayLimitExceeded, got %v", err)
 	}
 }
@@ -231,7 +232,7 @@ func TestReadLastNLines_GiantLineNoNewline(t *testing.T) {
 
 	// Set maxLineBytes to 5000 bytes
 	_, err := readLastNLines(context.Background(), logFile, 1, 0, 5000)
-	if err != ErrReplayLimitExceeded {
+	if !errors.Is(err, ErrReplayLimitExceeded) {
 		t.Errorf("expected ErrReplayLimitExceeded, got %v", err)
 	}
 }
