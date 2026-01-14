@@ -66,6 +66,10 @@ var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 // Both channels close on ctx.Done() or fatal error.
 // Watch can only be called once per Watcher instance.
 //
+// The error channel has a buffer size of 16. If errors occur faster than
+// they can be consumed, additional errors will be silently dropped.
+// This is a deliberate trade-off to prevent blocking the watcher goroutine.
+//
 // Returns ErrWatcherClosed if the watcher has been closed.
 // Returns ErrAlreadyWatching if Watch() has already been called.
 func (w *Watcher) Watch(ctx context.Context) (<-chan Event, <-chan error, error) {
@@ -186,14 +190,16 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 			if newFile != currentFile {
 				// New log file found, switch to it
 				w.log.Debug("log rotation detected", "from", currentFile, "to", newFile)
-				_ = t.Stop()
 				cfg := tailer.DefaultConfig()
 				cfg.FromStart = true // Read new file from start
 				newTailer, err := tailer.New(ctx, newFile, cfg)
 				if err != nil {
+					// Failed to create new tailer - keep using old one
 					sendError(ctx, errCh, &WatchError{Op: WatchOpTail, Path: newFile, Err: err})
 					continue
 				}
+				// Successfully created new tailer, now stop the old one
+				_ = t.Stop()
 				t = newTailer
 				currentFile = newFile
 			}
@@ -533,6 +539,10 @@ func sendError(ctx context.Context, errCh chan<- error, err error) {
 
 // WatchWithOptions creates a watcher using functional options and starts watching.
 // This is the preferred way to create and start a watcher.
+//
+// The error channel has a buffer size of 16. If errors occur faster than
+// they can be consumed, additional errors will be silently dropped.
+// This is a deliberate trade-off to prevent blocking the watcher goroutine.
 //
 // Note: This function does not return the underlying Watcher, so callers cannot
 // call Close() to perform synchronous shutdown. The watcher will stop when the
