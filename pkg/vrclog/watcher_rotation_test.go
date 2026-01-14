@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -200,6 +201,10 @@ func TestWatcher_LogRotationWithReplay(t *testing.T) {
 // TestWatcher_LogRotationContinuesOnError tests that if creating a new
 // tailer fails during rotation, the watcher continues with the old file.
 func TestWatcher_LogRotationContinuesOnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod does not restrict file access on Windows")
+	}
+
 	dir := t.TempDir()
 
 	// Create initial log file
