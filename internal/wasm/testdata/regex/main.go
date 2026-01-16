@@ -32,6 +32,7 @@ func free(ptr, size uint32) {
 }
 
 // Host functions (imported from "env" module)
+//
 //go:wasm-module env
 //export regex_match
 func regexMatch(strPtr, strLen, rePtr, reLen uint32) uint32

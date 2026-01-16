@@ -27,7 +27,7 @@ const (
 // It is goroutine-safe: each ParseLine call creates a new module instance.
 type WasmParser struct {
 	compiled      *CompiledWasm
-	timeout       atomic.Int64  // Timeout in nanoseconds (use atomic for thread-safety)
+	timeout       atomic.Int64 // Timeout in nanoseconds (use atomic for thread-safety)
 	logger        *slog.Logger
 	abiVersion    uint32        // Cached ABI version (validated at load time)
 	moduleCounter atomic.Uint64 // Counter for unique module names
@@ -192,10 +192,10 @@ func (p *WasmParser) ParseLine(ctx context.Context, line string) (vrclog.ParseRe
 
 	// Parse output JSON (using our safe copy)
 	type outputData struct {
-		Ok     bool            `json:"ok"`
-		Events []event.Event   `json:"events"`
-		Error  *string         `json:"error,omitempty"`
-		Code   *string         `json:"code,omitempty"`
+		Ok     bool          `json:"ok"`
+		Events []event.Event `json:"events"`
+		Error  *string       `json:"error,omitempty"`
+		Code   *string       `json:"code,omitempty"`
 	}
 
 	var output outputData

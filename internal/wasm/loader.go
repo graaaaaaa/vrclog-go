@@ -32,10 +32,10 @@ const (
 
 // CompiledWasm represents a compiled Wasm module ready for instantiation.
 type CompiledWasm struct {
-	runtime        wazero.Runtime
-	compiled       wazero.CompiledModule
-	cache          wazero.CompilationCache
-	hostFunctions  *hostFunctions
+	runtime       wazero.Runtime
+	compiled      wazero.CompiledModule
+	cache         wazero.CompilationCache
+	hostFunctions *hostFunctions
 }
 
 // Close releases resources held by the compiled Wasm.

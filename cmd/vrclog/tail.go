@@ -15,15 +15,15 @@ import (
 
 var (
 	// tail flags
-	logDir           string
-	format           string
-	tailIncludeTypes []string
-	tailExcludeTypes []string
-	includeRaw       bool
-	replayLast       int
-	replaySince      string
-	tailPatterns     []string
-	tailPlugins      []string
+	logDir            string
+	format            string
+	tailIncludeTypes  []string
+	tailExcludeTypes  []string
+	includeRaw        bool
+	replayLast        int
+	replaySince       string
+	tailPatterns      []string
+	tailPlugins       []string
 	tailPluginTimeout time.Duration
 )
 

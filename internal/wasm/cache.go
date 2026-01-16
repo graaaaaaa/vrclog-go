@@ -17,10 +17,10 @@ const (
 // regexCache is an LRU cache for compiled regular expressions.
 // It is thread-safe and can be accessed concurrently.
 type regexCache struct {
-	mu       sync.RWMutex
-	cache    map[string]*list.Element
-	lruList  *list.List
-	maxSize  int
+	mu      sync.RWMutex
+	cache   map[string]*list.Element
+	lruList *list.List
+	maxSize int
 }
 
 // cacheEntry represents a single cache entry.
