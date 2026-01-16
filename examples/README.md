@@ -6,7 +6,7 @@ This directory contains runnable examples demonstrating various features of vrcl
 
 - Go 1.25 or later
 - For `watch-events`: VRChat installed and running on Windows (or access to VRChat log files)
-- For `plugins/vrpoker`: [TinyGo](https://tinygo.org/getting-started/install/) 0.35.0 or later
+- For `plugins/vrpoker`: [TinyGo](https://tinygo.org/getting-started/install/) 0.40.1 or later
 
 ## Running Examples
 

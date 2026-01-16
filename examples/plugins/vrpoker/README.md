@@ -8,7 +8,7 @@ VRPoker is a poker game world in VRChat. This plugin demonstrates how to create 
 
 ## Building
 
-Requires [TinyGo](https://tinygo.org/getting-started/install/) 0.35.0 or later:
+Requires [TinyGo](https://tinygo.org/getting-started/install/) 0.40.1 or later:
 
 ```bash
 make

@@ -61,12 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic cleanup of plugin resources on exit
 - `ParserChain.Close()` method for resource cleanup of closeable parsers
 - Makefile target `build-test-wasm` for building test Wasm modules
-- CI integration with TinyGo 0.35.0 for automated Wasm testing
+- CI integration with TinyGo for automated Wasm testing
 
 ### Changed
 
 - `tail --types` replaced with `--include-types` (breaking change)
 - Event type filtering is now case-insensitive and trims whitespace
+- Updated TinyGo version from 0.35.0 to 0.40.1 in CI for Go 1.25 compatibility
 
 ### Security
 
