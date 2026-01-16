@@ -1,4 +1,4 @@
-.PHONY: all build test test-race test-cover bench fuzz lint fmt fmt-check vet tidy clean release-snapshot help
+.PHONY: all build test test-race test-cover bench fuzz lint fmt fmt-check vet tidy clean release-snapshot build-test-wasm help
 
 # Default target
 all: lint test build
@@ -10,6 +10,11 @@ build:
 # Build for Windows (cross-compile)
 build-windows:
 	GOOS=windows GOARCH=amd64 go build -o vrclog.exe ./cmd/vrclog
+
+# Build test Wasm modules (requires TinyGo)
+build-test-wasm:
+	@which tinygo > /dev/null || (echo "TinyGo not installed. See https://tinygo.org/getting-started/install/" && exit 1)
+	$(MAKE) -C internal/wasm/testdata
 
 # Run tests
 test:
@@ -75,6 +80,7 @@ help:
 	@echo "  all             - Run lint, test, and build (default)"
 	@echo "  build           - Build the CLI binary"
 	@echo "  build-windows   - Cross-compile for Windows"
+	@echo "  build-test-wasm - Build test Wasm modules (requires TinyGo)"
 	@echo "  test            - Run tests"
 	@echo "  test-race       - Run tests with race detector"
 	@echo "  test-cover      - Run tests with coverage report"

@@ -3,6 +3,7 @@ package vrclog
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/vrclog/vrclog-go/pkg/vrclog/event"
 )
@@ -114,4 +115,19 @@ func (c *ParserChain) ParseLine(ctx context.Context, line string) (ParseResult, 
 	}
 
 	return ParseResult{Events: allEvents, Matched: anyMatched}, nil
+}
+
+// Close closes all parsers that implement io.Closer.
+// Errors from individual Close() calls are collected and returned as a joined error.
+// This method is safe to call even if some parsers don't implement io.Closer.
+func (c *ParserChain) Close() error {
+	var errs []error
+	for _, p := range c.Parsers {
+		if closer, ok := p.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }

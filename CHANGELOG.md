@@ -42,6 +42,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `parser-chain-modes/` - `ParserChain` modes: `ChainAll`, `ChainFirst`, `ChainContinueOnError`
   - `parser-decorator/` - Decorator pattern for extending parsers (`MetricsParser`, `TransformingParser`)
   - `graceful-shutdown/` - Watcher lifecycle management with `Watcher.Close()` and `sync.WaitGroup`
+  - `plugins/vrpoker/` - WebAssembly plugin example demonstrating custom event parsing with WASI
+- **WebAssembly plugin system** for extending parsers without modifying core codebase (`internal/wasm/`)
+  - Wasm plugin ABI v1 with JSON-based input/output protocol
+  - Plugin interface: `abi_version()`, `alloc()`, `free()`, `parse_line()`
+  - Host functions exported to plugins: `regex_match()`, `regex_find_submatch()`, `log()`, `now_ms()`
+  - wazero v1.11.0 runtime with AOT compilation and disk caching
+  - WASI support (wasi_snapshot_preview1) for TinyGo/Rust plugins
+  - Goroutine-safe execution (new module instance per ParseLine call)
+  - Configurable timeout (default 50ms, adjustable via `--plugin-timeout`)
+  - ReDoS protection: 5ms regex timeout, 512 byte pattern limit
+  - Security: rate-limited logging (10/sec), input size limits (8KB), sandboxed execution
+  - `WasmParser` implements both `vrclog.Parser` and `io.Closer` interfaces
+- **CLI plugin support**
+  - `--plugin` flag for loading Wasm plugins (can be specified multiple times)
+  - `--plugin-timeout` flag for configuring plugin execution timeout
+  - Available in both `tail` and `parse` commands
+  - Automatic cleanup of plugin resources on exit
+- `ParserChain.Close()` method for resource cleanup of closeable parsers
+- Makefile target `build-test-wasm` for building test Wasm modules
+- CI integration with TinyGo 0.35.0 for automated Wasm testing
 
 ### Changed
 

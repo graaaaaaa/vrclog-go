@@ -6,6 +6,7 @@ This directory contains runnable examples demonstrating various features of vrcl
 
 - Go 1.25 or later
 - For `watch-events`: VRChat installed and running on Windows (or access to VRChat log files)
+- For `plugins/vrpoker`: [TinyGo](https://tinygo.org/getting-started/install/) 0.35.0 or later
 
 ## Running Examples
 
@@ -24,6 +25,9 @@ go run ./examples/event-filtering
 go run ./examples/parser-chain-modes
 go run ./examples/parser-decorator
 go run ./examples/graceful-shutdown
+
+# Build WebAssembly plugin (requires TinyGo)
+cd examples/plugins/vrpoker && make
 ```
 
 ---
@@ -522,6 +526,68 @@ Final stats: total=5, matched=3
 → Error channel closed, handler exiting
 → All goroutines finished
 ```
+
+---
+
+### 14. plugins/vrpoker
+
+**File**: `plugins/vrpoker/main.go`
+
+**What it demonstrates**:
+- Creating a WebAssembly plugin for custom event parsing
+- Using the vrclog Wasm plugin ABI (v1)
+- Calling host functions (regex_match, regex_find_submatch) from Wasm
+- Building plugins with TinyGo for small binary size
+- Memory management in Wasm (bump allocator pattern)
+- JSON-based input/output protocol
+
+**Use case**: Extending vrclog with custom parsers for game-specific events without modifying the main codebase. Useful for parsing events from custom VRChat worlds (poker games, quest systems, minigames, etc.).
+
+**Key concepts**:
+- **Plugin ABI Functions**: `abi_version()`, `alloc()`, `free()`, `parse_line()`
+- **Host Functions**: `regex_match()`, `regex_find_submatch()`, `log()`, `now_ms()` provided by vrclog
+- **Memory Regions**: INPUT_REGION (0x10000) for host-to-plugin communication
+- **JSON Protocol**: Input `{"line": "..."}`, output `{"ok": true, "events": [...]}`
+- **Event Types**: `vrpoker_game_start`, `vrpoker_winner`, `vrpoker_round`, `vrpoker_event`
+
+**Building**:
+```bash
+cd examples/plugins/vrpoker
+make
+# Produces vrpoker.wasm
+```
+
+**Usage**:
+```bash
+# Monitor VRChat logs with plugin
+vrclog tail --plugin ./vrpoker.wasm
+
+# Parse historical logs
+vrclog parse --plugin ./vrpoker.wasm --log-dir /path/to/logs
+
+# Combine with YAML patterns
+vrclog tail --patterns ./patterns.yaml --plugin ./vrpoker.wasm
+```
+
+**Example log lines parsed**:
+```
+[VRPoker] Game started with 4 players
+[VRPoker] Player Alice wins with Royal Flush
+[VRPoker] Round 3 begins
+```
+
+**Output example**:
+```json
+{"timestamp":"2024-01-01T00:00:00Z","type":"vrpoker_game_start","data":{"player_count":"4"}}
+{"timestamp":"2024-01-01T00:00:00Z","type":"vrpoker_winner","data":{"player":"Alice","hand":"Royal Flush"}}
+{"timestamp":"2024-01-01T00:00:00Z","type":"vrpoker_round","data":{"round":"3"}}
+```
+
+**Implementation notes**:
+- Uses TinyGo with `-target=wasi` for WASI compatibility
+- Bump allocator for simple memory management (no GC overhead)
+- Regex operations delegated to host (Go's RE2 engine) for security and performance
+- Plugin binary size: ~50KB (unoptimized), ~20KB (with wasm-opt)
 
 ---
 

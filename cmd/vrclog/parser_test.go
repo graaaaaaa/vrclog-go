@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,7 +9,9 @@ import (
 )
 
 func TestBuildParser_NoPatterns(t *testing.T) {
-	parser, err := buildParser(nil)
+	ctx := context.Background()
+	parser, cleanup, err := buildParser(ctx, nil, nil, 0, nil)
+	defer cleanup()
 	if err != nil {
 		t.Fatalf("buildParser(nil) error = %v", err)
 	}
@@ -18,7 +21,9 @@ func TestBuildParser_NoPatterns(t *testing.T) {
 }
 
 func TestBuildParser_EmptySlice(t *testing.T) {
-	parser, err := buildParser([]string{})
+	ctx := context.Background()
+	parser, cleanup, err := buildParser(ctx, []string{}, nil, 0, nil)
+	defer cleanup()
 	if err != nil {
 		t.Fatalf("buildParser([]) error = %v", err)
 	}
@@ -40,7 +45,9 @@ patterns:
 		t.Fatal(err)
 	}
 
-	parser, err := buildParser([]string{patternFile})
+	ctx := context.Background()
+	parser, cleanup, err := buildParser(ctx, []string{patternFile}, nil, 0, nil)
+	defer cleanup()
 	if err != nil {
 		t.Fatalf("buildParser() error = %v", err)
 	}
@@ -50,7 +57,9 @@ patterns:
 }
 
 func TestBuildParser_FileNotFound(t *testing.T) {
-	_, err := buildParser([]string{"/nonexistent/patterns.yaml"})
+	ctx := context.Background()
+	_, cleanup, err := buildParser(ctx, []string{"/nonexistent/patterns.yaml"}, nil, 0, nil)
+	defer cleanup()
 	if err == nil {
 		t.Fatal("buildParser() expected error for nonexistent file")
 	}
@@ -71,7 +80,9 @@ func TestBuildParser_InvalidYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := buildParser([]string{patternFile})
+	ctx := context.Background()
+	_, cleanup, err := buildParser(ctx, []string{patternFile}, nil, 0, nil)
+	defer cleanup()
 	if err == nil {
 		t.Fatal("buildParser() expected error for invalid YAML")
 	}
@@ -90,7 +101,9 @@ patterns:
 		t.Fatal(err)
 	}
 
-	_, err := buildParser([]string{patternFile})
+	ctx := context.Background()
+	_, cleanup, err := buildParser(ctx, []string{patternFile}, nil, 0, nil)
+	defer cleanup()
 	if err == nil {
 		t.Fatal("buildParser() expected error for invalid regex")
 	}
@@ -121,7 +134,9 @@ patterns:
 		t.Fatal(err)
 	}
 
-	parser, err := buildParser([]string{pattern1, pattern2})
+	ctx := context.Background()
+	parser, cleanup, err := buildParser(ctx, []string{pattern1, pattern2}, nil, 0, nil)
+	defer cleanup()
 	if err != nil {
 		t.Fatalf("buildParser() error = %v", err)
 	}

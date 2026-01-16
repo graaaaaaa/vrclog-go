@@ -23,6 +23,8 @@ var (
 	replayLast       int
 	replaySince      string
 	tailPatterns     []string
+	tailPlugins      []string
+	tailPluginTimeout time.Duration
 )
 
 var tailCmd = &cobra.Command{
@@ -82,6 +84,15 @@ func init() {
 	// Enable filename completion for --patterns
 	_ = tailCmd.MarkFlagFilename("patterns", "yaml", "yml")
 
+	// Plugin flags
+	tailCmd.Flags().StringSliceVar(&tailPlugins, "plugin", nil,
+		"Wasm plugin file(s) for custom event parsing (can be specified multiple times)")
+	tailCmd.Flags().DurationVar(&tailPluginTimeout, "plugin-timeout", 50*time.Millisecond,
+		"Timeout for plugin execution")
+
+	// Enable filename completion for --plugin
+	_ = tailCmd.MarkFlagFilename("plugin", "wasm")
+
 	// Register completion for event type flags
 	registerEventTypeCompletion(tailCmd, "include-types")
 	registerEventTypeCompletion(tailCmd, "exclude-types")
@@ -111,16 +122,29 @@ func runTail(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--replay-last and --replay-since cannot be used together")
 	}
 
-	// Build parser from pattern files
-	parser, err := buildParser(tailPatterns)
-	if err != nil {
-		return err
-	}
-
 	// Setup context with signal handling
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Setup logger for plugins (if verbose or plugins are specified)
+	var logger *slog.Logger
+	if verbose || len(tailPlugins) > 0 {
+		level := slog.LevelInfo
+		if verbose {
+			level = slog.LevelDebug
+		}
+		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: level,
+		}))
+	}
+
+	// Build parser from pattern files and plugins
+	parser, cleanup, err := buildParser(ctx, tailPatterns, tailPlugins, tailPluginTimeout, logger)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	// Build watch options using functional options pattern
 	var watchOpts []vrclog.WatchOption
@@ -154,10 +178,7 @@ func runTail(cmd *cobra.Command, args []string) error {
 	}
 
 	// Setup logger based on verbose flag
-	if verbose {
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
+	if logger != nil {
 		watchOpts = append(watchOpts, vrclog.WithLogger(logger))
 	}
 

@@ -30,6 +30,12 @@
 coverage.out
 coverage.html
 
+# Test Wasm modules (built by TinyGo)
+internal/wasm/testdata/*.wasm
+
+# Example plugin binaries
+examples/plugins/**/*.wasm
+
 # Dependency directories
 /vendor/
 

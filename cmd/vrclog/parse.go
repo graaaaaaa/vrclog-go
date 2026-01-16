@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,15 +16,17 @@ import (
 
 var (
 	// parse flags
-	parseLogDir       string
-	parseIncludeTypes []string
-	parseExcludeTypes []string
-	parseSince        string
-	parseUntil        string
-	parseFormat       string
-	parseRaw          bool
-	parseStopOnError  bool
-	parsePatterns     []string
+	parseLogDir        string
+	parseIncludeTypes  []string
+	parseExcludeTypes  []string
+	parseSince         string
+	parseUntil         string
+	parseFormat        string
+	parseRaw           bool
+	parseStopOnError   bool
+	parsePatterns      []string
+	parsePlugins       []string
+	parsePluginTimeout time.Duration
 )
 
 var parseCmd = &cobra.Command{
@@ -83,6 +86,15 @@ func init() {
 	// Enable filename completion for --patterns
 	_ = parseCmd.MarkFlagFilename("patterns", "yaml", "yml")
 
+	// Plugin flags
+	parseCmd.Flags().StringSliceVar(&parsePlugins, "plugin", nil,
+		"Wasm plugin file(s) for custom event parsing (can be specified multiple times)")
+	parseCmd.Flags().DurationVar(&parsePluginTimeout, "plugin-timeout", 50*time.Millisecond,
+		"Timeout for plugin execution")
+
+	// Enable filename completion for --plugin
+	_ = parseCmd.MarkFlagFilename("plugin", "wasm")
+
 	// Register completion for event type flags
 	registerEventTypeCompletion(parseCmd, "include-types")
 	registerEventTypeCompletion(parseCmd, "exclude-types")
@@ -113,16 +125,29 @@ func runParse(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Build parser from pattern files
-	parser, err := buildParser(parsePatterns)
-	if err != nil {
-		return err
-	}
-
 	// Setup context with signal handling
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Setup logger for plugins (if verbose or plugins are specified)
+	var logger *slog.Logger
+	if verbose || len(parsePlugins) > 0 {
+		level := slog.LevelInfo
+		if verbose {
+			level = slog.LevelDebug
+		}
+		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: level,
+		}))
+	}
+
+	// Build parser from pattern files and plugins
+	parser, cleanup, err := buildParser(ctx, parsePatterns, parsePlugins, parsePluginTimeout, logger)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	// Build parse options
 	var opts []vrclog.ParseDirOption

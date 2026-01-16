@@ -78,17 +78,28 @@ internal/             # Implementation details
 ├── parser/           # Log line parsing with regex patterns (built-in events)
 ├── tailer/           # File tailing wrapper around nxadm/tail
 ├── logfinder/        # Log directory/file detection
-└── safefile/         # Security-hardened file operations (TOCTOU protection)
+├── safefile/         # Security-hardened file operations (TOCTOU protection)
+└── wasm/             # WebAssembly plugin system (Phase 2)
+    ├── parser.go     # WasmParser implementing vrclog.Parser
+    ├── loader.go     # WASM file loading with security checks
+    ├── host.go       # Host functions (regex, log, time)
+    ├── cache.go      # LRU cache for compiled regex patterns
+    ├── abi.go        # ABI version constants and memory regions
+    └── errors.go     # WasmRuntimeError, ABIError, PluginError
 
 cmd/vrclog/           # CLI entry point
 ├── main.go           # Root command, version command
 ├── tail.go           # tail subcommand (real-time monitoring)
 ├── parse.go          # parse subcommand (batch parsing)
+├── parser.go         # Shared buildParser() for pattern/plugin loading
+├── parser_test.go    # Tests for buildParser()
 ├── completion.go     # Shell completion subcommand (bash/zsh/fish/powershell)
 ├── format.go         # Shared output formatting
 └── eventtypes.go     # Shared event type validation (uses event.TypeNames())
 
 examples/             # 13 runnable examples (see examples/README.md)
+├── plugins/          # WASM plugin examples (TinyGo)
+│   └── vrpoker/      # VRPoker event parser plugin
 ├── custom-parser/    # YAML-based custom event parsing
 ├── parser-chain/     # Combining multiple parsers
 ├── parserfunc/       # ParserFunc adapter pattern
@@ -149,6 +160,30 @@ watcher, err := vrclog.NewWatcherWithOptions(
       event_type: my_event
       regex: 'Player (?P<name>\w+) score: (?P<score>\d+)'
   ```
+
+**WASM Plugin System** (Phase 2):
+- Located in `internal/wasm/` - implements `vrclog.Parser` interface using WebAssembly plugins
+- Uses [wazero v1.11.0](https://wazero.io/) runtime (pure Go, no CGO dependency)
+- JSON-based ABI v1 for host-plugin communication (see `docs/adr/0009-wasm-plugin-system-architecture.md`)
+- **Thread-safe**: Each `ParseLine()` call instantiates a new WASM module for goroutine safety
+- **Security controls**:
+  - TOCTOU protection via `safefile.OpenRegular()` when loading WASM files
+  - 10MB max WASM file size (`MaxWasmFileSize`)
+  - 1MB max plugin output size (`MaxOutputSize`) to prevent memory exhaustion
+  - 50ms default execution timeout (configurable via `SetTimeout()` or CLI `--plugin-timeout`)
+  - Memory safety: copies WASM memory before calling `free()` to prevent use-after-free
+  - Bounds checking on all memory operations
+- **CLI integration**:
+  - `--plugin <path.wasm>` flag (can be specified multiple times)
+  - `--plugin-timeout <duration>` flag (default: 50ms)
+  - Works with both `vrclog tail` and `vrclog parse` commands
+- **Building plugins**: Use TinyGo with WASI target:
+  ```bash
+  tinygo build -target=wasi -no-debug -scheduler=none -gc=leaking -o plugin.wasm main.go
+  ```
+- **Host Functions**: Plugins can call host functions for regex matching (`regex_match`, `regex_find_submatch`), logging (`log`), and time (`now_ms`)
+- **Resource cleanup**: `WasmParser.Close()` implements proper cleanup with nil-after-close pattern
+- See `examples/plugins/` for example plugin implementations
 
 **Legacy ParseLine Convention** (internal/parser only):
 - `(*Event, nil)` - successfully parsed
@@ -225,6 +260,13 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - **Pattern file size limits**: 1MB max file size, 512 byte max regex pattern length, 1000 pattern max count (ReDoS and CPU exhaustion protection)
 - **Directory accessibility checks**: `FindLatestLogFile()` and `listLogFiles()` verify directory accessibility before calling `filepath.Glob()` to detect permission errors that Glob might hide
 - **Context cancellation**: `ParseFile()` and `ParseDir()` properly detect and propagate context cancellation without wrapping it in `ParseError`. `readLastNLines()` checks context between chunk reads for long-running replays
+- **WASM plugin security** (`internal/wasm/`):
+  - TOCTOU protection: Uses `safefile.OpenRegular()` + `io.LimitReader` with double size check to prevent file replacement attacks
+  - Memory safety: Copies WASM memory (`outBytesCopy := make([]byte, len(outBytes)); copy(...)`) BEFORE calling plugin's `free()` to prevent use-after-free corruption
+  - Output bounds check: Validates `outLen > MaxOutputSize` BEFORE calling `Memory().Read()` to prevent memory exhaustion
+  - Execution timeout: `context.WithTimeout()` enforced on `parse_line` calls (50ms default)
+  - Resource cleanup: `WasmParser.Close()` sets `p.compiled = nil` after cleanup; `ParseLine()` checks nil to detect use-after-close
+  - ABI version validation: Checks `abi_version()` during `Load()` to ensure plugin compatibility
 
 ## Testing Notes
 
@@ -294,3 +336,16 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - If errors are produced faster than consumed, additional errors are silently dropped (documented in API)
 - This is a deliberate design trade-off to prevent deadlock
 - Consumers should process errors promptly to avoid drops
+
+**WASM Plugin System** (`internal/wasm/`):
+- **Thread safety**: Uses atomic operations for timeout (`atomic.Int64`) and module counter (`atomic.Uint64`). Each `ParseLine()` call creates a unique module instance with name `plugin-{counter}` to avoid conflicts in concurrent calls
+- **Memory copy timing**: Critical to copy WASM memory BEFORE calling `free()` because wazero's `Memory().Read()` returns a view, not a copy. After `free()`, the plugin may overwrite the memory region
+- **Context handling**: Distinguishes `context.DeadlineExceeded` (returns `ErrTimeout`) from `context.Canceled` (returns `ctx.Err()` directly) for proper error handling
+- **Nil-after-close pattern**: Both `CompiledWasm.Close()` and `WasmParser.Close()` set all pointers to nil after cleanup to prevent double-close and enable use-after-close detection
+- **Host function goroutine leak**: Regex host functions (`regex_match`, `regex_find_submatch`) spawn goroutines with 5ms timeout. If timeout occurs, goroutine may continue (Go's `regexp` doesn't support cancellation). This is acceptable because:
+  1. RE2-based engine guarantees linear time (no catastrophic backtracking)
+  2. 512 byte pattern length limit constrains complexity
+  3. Leaked goroutines eventually complete and are garbage collected
+- **ABI version caching**: `WasmParser` caches ABI version (validated once during `Load()`) to avoid repeated calls on each `ParseLine()`
+- **CLI timeout wiring**: `buildParser()` in `cmd/vrclog/parser.go` accepts `pluginTimeout time.Duration` parameter and calls `wp.SetTimeout()` when `timeout > 0`
+- **Error types**: Uses typed errors (`WasmRuntimeError`, `ABIError`, `PluginError`) for different failure modes to enable proper error handling with `errors.Is()` and `errors.As()`

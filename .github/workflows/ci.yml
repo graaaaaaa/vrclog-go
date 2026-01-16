@@ -64,6 +64,15 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Install TinyGo
+        uses: acifani/setup-tinygo@v2
+        with:
+          tinygo-version: '0.35.0'
+          install-binaryen: false
+
+      - name: Build test Wasm modules
+        run: make -C internal/wasm/testdata
+
       - name: Run tests
         run: go test -v ./...
 
