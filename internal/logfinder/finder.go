@@ -86,6 +86,7 @@ func FindLogDir(explicit string) (string, error) {
 type logCandidate struct {
 	path    string
 	modTime int64
+	name    string // basename for tiebreaking
 }
 
 // FindLatestLogFile returns the path to the most recently modified
@@ -129,6 +130,7 @@ func FindLatestLogFile(dir string) (string, error) {
 		candidates = append(candidates, logCandidate{
 			path:    m,
 			modTime: info.ModTime().UnixNano(),
+			name:    filepath.Base(m),
 		})
 	}
 
@@ -138,7 +140,10 @@ func FindLatestLogFile(dir string) (string, error) {
 
 	// Sort by cached modification time (newest first)
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].modTime > candidates[j].modTime
+		if candidates[i].modTime != candidates[j].modTime {
+			return candidates[i].modTime > candidates[j].modTime
+		}
+		return candidates[i].name > candidates[j].name
 	})
 
 	return candidates[0].path, nil

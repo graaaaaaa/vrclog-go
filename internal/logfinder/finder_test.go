@@ -168,3 +168,38 @@ func TestResolveAndValidateLogDir_NotExists(t *testing.T) {
 		t.Error("resolveAndValidateLogDir() = non-empty, want empty for nonexistent path")
 	}
 }
+
+func TestFindLatestLogFile_SameModTime(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create two log files with different timestamps in the name
+	file1 := "output_log_2024-01-15_10-00-00.txt"
+	file2 := "output_log_2024-01-15_12-00-00.txt"
+
+	for _, name := range []string{file1, file2} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Set both files to the exact same modification time
+	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	for _, name := range []string{file1, file2} {
+		path := filepath.Join(dir, name)
+		if err := os.Chtimes(path, fixedTime, fixedTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := FindLatestLogFile(dir)
+	if err != nil {
+		t.Fatalf("FindLatestLogFile() error = %v", err)
+	}
+
+	// When ModTime is equal, the file with the lexicographically greater name should win
+	want := file2
+	if filepath.Base(got) != want {
+		t.Errorf("FindLatestLogFile() = %v, want %v (tiebreaker by filename)", filepath.Base(got), want)
+	}
+}
