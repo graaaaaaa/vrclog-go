@@ -2,6 +2,7 @@ package vrclog
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -122,6 +123,21 @@ func TestReadFile_NegativeOffset(t *testing.T) {
 
 	if gotErr == nil {
 		t.Error("expected error for negative offset")
+	}
+}
+
+func TestReadFile_OffsetBeyondFileSize(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLog(t, dir, "line1")
+
+	var gotErr error
+	for _, err := range ReadFile(context.Background(), ReadFileConfig{Path: path, Offset: 100, Line: 2}) {
+		gotErr = err
+		break
+	}
+
+	if !errors.Is(gotErr, ErrInvalidOffset) {
+		t.Fatalf("expected ErrInvalidOffset, got %v", gotErr)
 	}
 }
 
@@ -314,6 +330,45 @@ func TestReadFile_EmptyFile(t *testing.T) {
 
 	if count != 0 {
 		t.Errorf("expected 0 records for empty file, got %d", count)
+	}
+}
+
+func TestReadFile_RelativePathYieldsAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLog(t, dir, "line1")
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	var rec Record
+	for r, err := range ReadFile(context.Background(), ReadFileConfig{Path: filepath.Base(path)}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec = r
+		break
+	}
+
+	if rec.Path == "" {
+		t.Fatal("expected a record")
+	}
+	if !filepath.IsAbs(rec.Path) {
+		t.Fatalf("Record.Path = %q, want absolute path", rec.Path)
+	}
+	want, err := filepath.Abs(filepath.Base(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.Clean(want)
+	if rec.Path != want {
+		t.Fatalf("Record.Path = %q, want %q", rec.Path, want)
 	}
 }
 

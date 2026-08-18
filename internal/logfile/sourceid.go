@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"runtime"
-	"unicode"
+	"strings"
 )
 
 func SourceID(path string) (string, error) {
@@ -24,9 +24,5 @@ func SourceID(path string) (string, error) {
 }
 
 func normalizeWindows(path string) string {
-	runes := []rune(path)
-	if len(runes) >= 2 && runes[1] == ':' && unicode.IsLetter(runes[0]) {
-		runes[0] = unicode.ToLower(runes[0])
-	}
-	return string(runes)
+	return strings.ToLower(path)
 }

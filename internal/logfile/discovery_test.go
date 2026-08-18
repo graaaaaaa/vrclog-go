@@ -43,6 +43,70 @@ func TestListLogFiles_SortsByFilenameTimestamp(t *testing.T) {
 	}
 }
 
+func TestListLogFiles_RelativeDirReturnsAbsolutePaths(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "logs")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "output_log_2024-01-01_00-00-00.txt"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := ListLogFiles("logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if !filepath.IsAbs(files[0].Path) {
+		t.Fatalf("Path = %q, want absolute path", files[0].Path)
+	}
+	want, err := filepath.Abs(filepath.Join("logs", "output_log_2024-01-01_00-00-00.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.Clean(want)
+	if files[0].Path != want {
+		t.Fatalf("Path = %q, want %q", files[0].Path, want)
+	}
+}
+
+func TestListLogFiles_DirGlobMetacharactersAreLiteral(t *testing.T) {
+	parent := t.TempDir()
+	literalDir := filepath.Join(parent, "logs[abc]")
+	if err := os.Mkdir(literalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(literalDir, "output_log_2024-01-01_00-00-00.txt"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := ListLogFiles(literalDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if files[0].Path != filepath.Join(literalDir, "output_log_2024-01-01_00-00-00.txt") {
+		t.Fatalf("matched unexpected path %q", files[0].Path)
+	}
+}
+
 func TestListLogFiles_FallbackToModTimeAndName(t *testing.T) {
 	dir := t.TempDir()
 

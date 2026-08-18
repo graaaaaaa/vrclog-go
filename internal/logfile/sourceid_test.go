@@ -96,3 +96,21 @@ func TestSourceID_RelativeVsAbsolute(t *testing.T) {
 		t.Errorf("relative and absolute paths produced different IDs: %q != %q", absID, relID)
 	}
 }
+
+func TestNormalizeWindows_LowercasesDriveLetterAndPath(t *testing.T) {
+	got := normalizeWindows(`C:\Users\Gra\AppData\LocalLow\VRChat\VRChat\output_log_2026-08-18_16-06-48.txt`)
+	want := `c:\users\gra\appdata\locallow\vrchat\vrchat\output_log_2026-08-18_16-06-48.txt`
+
+	if got != want {
+		t.Fatalf("normalizeWindows() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeWindows_MixedCasePathEquivalent(t *testing.T) {
+	a := normalizeWindows(`C:\Users\Gra\AppData\LocalLow\VRChat\VRChat\output_log_2026-08-18_16-06-48.txt`)
+	b := normalizeWindows(`c:\users\gra\appdata\locallow\vrchat\vrchat\OUTPUT_LOG_2026-08-18_16-06-48.TXT`)
+
+	if a != b {
+		t.Fatalf("mixed-case Windows paths should normalize equally: %q != %q", a, b)
+	}
+}

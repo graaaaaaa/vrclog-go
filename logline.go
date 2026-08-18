@@ -136,14 +136,14 @@ func stripTerminator(b []byte) []byte {
 	return b
 }
 
-// record_id = SHA-256(source_id + NUL + decimal(offset) + NUL + hex(raw_hash))
+// record_id = SHA-256(source_id + NUL + decimal(offset) + NUL + raw_hash)
 func computeRecordID(sourceID SourceID, offset int64, rawHash [32]byte) RecordID {
 	h := sha256.New()
 	h.Write([]byte(string(sourceID)))
 	h.Write([]byte{0})
 	h.Write([]byte(strconv.FormatInt(offset, 10)))
 	h.Write([]byte{0})
-	h.Write([]byte(hex.EncodeToString(rawHash[:])))
+	h.Write(rawHash[:])
 	sum := h.Sum(nil)
 	return RecordID(hex.EncodeToString(sum))
 }

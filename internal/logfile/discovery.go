@@ -67,10 +67,27 @@ func DefaultLogDirectory() (string, error) {
 }
 
 func ListLogFiles(dir string) ([]LogFileInfo, error) {
-	pattern := filepath.Join(dir, "output_log_*.txt")
-	matches, err := filepath.Glob(pattern)
+	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, fmt.Errorf("globbing log files: %w", err)
+		return nil, err
+	}
+	dir = filepath.Clean(absDir)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []string
+	for _, entry := range entries {
+		matched, err := filepath.Match("output_log_*.txt", entry.Name())
+		if err != nil {
+			return nil, fmt.Errorf("matching log file name: %w", err)
+		}
+		if !matched {
+			continue
+		}
+		matches = append(matches, filepath.Join(dir, entry.Name()))
 	}
 
 	if len(matches) == 0 {
@@ -81,7 +98,12 @@ func ListLogFiles(dir string) ([]LogFileInfo, error) {
 		return nil, fmt.Errorf("%w: found %d files (limit %d)", ErrTooManyLogFiles, len(matches), MaxFollowCandidateFiles)
 	}
 
-	var files []LogFileInfo
+	type sortableLogFile struct {
+		info         LogFileInfo
+		timestamp    time.Time
+		hasTimestamp bool
+	}
+	var files []sortableLogFile
 	for _, m := range matches {
 		f, info, err := OpenRegular(m)
 		if err != nil {
@@ -89,10 +111,16 @@ func ListLogFiles(dir string) ([]LogFileInfo, error) {
 		}
 		f.Close()
 
-		files = append(files, LogFileInfo{
-			Path:    m,
-			ModTime: info.ModTime(),
-			Name:    filepath.Base(m),
+		name := filepath.Base(m)
+		ts, ok := parseFilenameTimestamp(name)
+		files = append(files, sortableLogFile{
+			info: LogFileInfo{
+				Path:    m,
+				ModTime: info.ModTime(),
+				Name:    name,
+			},
+			timestamp:    ts,
+			hasTimestamp: ok,
 		})
 	}
 
@@ -101,25 +129,26 @@ func ListLogFiles(dir string) ([]LogFileInfo, error) {
 	}
 
 	sort.SliceStable(files, func(i, j int) bool {
-		ti, oki := parseFilenameTimestamp(files[i].Name)
-		tj, okj := parseFilenameTimestamp(files[j].Name)
-
 		switch {
-		case oki && okj:
-			return ti.Before(tj)
-		case oki && !okj:
+		case files[i].hasTimestamp && files[j].hasTimestamp:
+			return files[i].timestamp.Before(files[j].timestamp)
+		case files[i].hasTimestamp && !files[j].hasTimestamp:
 			return true
-		case !oki && okj:
+		case !files[i].hasTimestamp && files[j].hasTimestamp:
 			return false
 		default:
-			if !files[i].ModTime.Equal(files[j].ModTime) {
-				return files[i].ModTime.Before(files[j].ModTime)
+			if !files[i].info.ModTime.Equal(files[j].info.ModTime) {
+				return files[i].info.ModTime.Before(files[j].info.ModTime)
 			}
-			return files[i].Name < files[j].Name
+			return files[i].info.Name < files[j].info.Name
 		}
 	})
 
-	return files, nil
+	result := make([]LogFileInfo, len(files))
+	for i, f := range files {
+		result[i] = f.info
+	}
+	return result, nil
 }
 
 func FindLatestLogFile(dir string) (string, error) {

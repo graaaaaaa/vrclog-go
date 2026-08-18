@@ -3,9 +3,11 @@ package vrclog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,6 +45,10 @@ func Follow(ctx context.Context, cfg FollowConfig) iter.Seq2[Record, error] {
 			yield(Record{}, errors.New("poll interval must not be negative"))
 			return
 		}
+		if cfg.PollInterval > 0 && cfg.PollInterval < MinPollInterval {
+			yield(Record{}, fmt.Errorf("poll interval must be at least %s", MinPollInterval))
+			return
+		}
 
 		pollInterval := cfg.PollInterval
 		if pollInterval == 0 {
@@ -58,6 +64,12 @@ func Follow(ctx context.Context, cfg FollowConfig) iter.Seq2[Record, error] {
 			}
 			dir = d
 		}
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			yield(Record{}, err)
+			return
+		}
+		dir = filepath.Clean(absDir)
 
 		fs := &followState{
 			dir:          dir,
@@ -81,7 +93,14 @@ type followState struct {
 }
 
 func (fs *followState) startWithCursor(ctx context.Context, cursor *Cursor, yield func(Record, error) bool) {
-	srcID, err := logfile.SourceID(cursor.Path)
+	path, err := filepath.Abs(cursor.Path)
+	if err != nil {
+		yield(Record{}, ErrCursorSourceMissing)
+		return
+	}
+	path = filepath.Clean(path)
+
+	srcID, err := logfile.SourceID(path)
 	if err != nil {
 		yield(Record{}, ErrCursorSourceMissing)
 		return
@@ -92,15 +111,20 @@ func (fs *followState) startWithCursor(ctx context.Context, cursor *Cursor, yiel
 		return
 	}
 
-	f, _, err := logfile.OpenRegular(cursor.Path)
+	f, info, err := logfile.OpenRegular(path)
 	if err != nil {
 		yield(Record{}, ErrCursorSourceMissing)
+		return
+	}
+	defer f.Close()
+
+	if cursor.Offset > info.Size() {
+		yield(Record{}, fmt.Errorf("%w: cursor offset %d exceeds file size %d", ErrInvalidOffset, cursor.Offset, info.Size()))
 		return
 	}
 
 	if cursor.Offset > 0 {
 		if _, err := f.Seek(cursor.Offset, io.SeekStart); err != nil {
-			f.Close()
 			yield(Record{}, ErrCursorSourceMissing)
 			return
 		}
@@ -109,15 +133,13 @@ func (fs *followState) startWithCursor(ctx context.Context, cursor *Cursor, yiel
 	lr := newLineReader(f, cursor.Offset, cursor.Line)
 	sid := SourceID(srcID)
 
-	if !readFileRecords(ctx, lr, sid, cursor.Path, yield) {
-		f.Close()
+	if !readFileRecords(ctx, lr, sid, path, yield) {
 		return
 	}
 
-	fs.currentFile = cursor.Path
+	fs.currentFile = path
 	fs.currentOff = lr.offset
 	fs.currentLine = lr.line
-	f.Close()
 
 	fs.pollLoop(ctx, yield)
 }
@@ -182,18 +204,17 @@ func (fs *followState) pollLoop(ctx context.Context, yield func(Record, error) b
 			return
 		}
 
-		newerFiles := fs.findNewerFiles()
-
-		if len(newerFiles) > 0 {
-			if !fs.settleAndSwitch(ctx, newerFiles, yield) {
+		grown, _ := hasFileGrown(fs.currentFile, fs.currentOff)
+		if grown {
+			if !fs.readGrowth(ctx, yield) {
 				return
 			}
 			continue
 		}
 
-		grown, _ := hasFileGrown(fs.currentFile, fs.currentOff)
-		if grown {
-			if !fs.readGrowth(ctx, yield) {
+		newerFiles := fs.findNewerFiles()
+		if len(newerFiles) > 0 {
+			if !fs.settleAndSwitch(ctx, newerFiles, yield) {
 				return
 			}
 			continue
@@ -267,19 +288,22 @@ func (fs *followState) settleAndSwitch(ctx context.Context, newerFiles []logfile
 func (fs *followState) readGrowth(ctx context.Context, yield func(Record, error) bool) bool {
 	f, _, err := logfile.OpenRegular(fs.currentFile)
 	if err != nil {
-		return true
+		yield(Record{}, err)
+		return false
 	}
 	defer f.Close()
 
 	srcIDStr, err := logfile.SourceID(fs.currentFile)
 	if err != nil {
-		return true
+		yield(Record{}, err)
+		return false
 	}
 	sid := SourceID(srcIDStr)
 
 	if fs.currentOff > 0 {
 		if _, err := f.Seek(fs.currentOff, io.SeekStart); err != nil {
-			return true
+			yield(Record{}, err)
+			return false
 		}
 	}
 
@@ -297,7 +321,8 @@ func (fs *followState) readGrowth(ctx context.Context, yield func(Record, error)
 			return true
 		}
 		if readErr != nil {
-			return true
+			yield(Record{}, readErr)
+			return false
 		}
 
 		rawStr := strings.ToValidUTF8(string(rawBytes), "�")

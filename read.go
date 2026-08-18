@@ -3,8 +3,10 @@ package vrclog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
+	"path/filepath"
 	"strings"
 
 	"github.com/vrclog/vrclog-go/internal/logfile"
@@ -31,19 +33,31 @@ func ReadFile(ctx context.Context, cfg ReadFileConfig) iter.Seq2[Record, error] 
 			return
 		}
 
+		path, err := filepath.Abs(cfg.Path)
+		if err != nil {
+			yield(Record{}, err)
+			return
+		}
+		path = filepath.Clean(path)
+
 		startLine := cfg.Line
 		if startLine == 0 && cfg.Offset == 0 {
 			startLine = 1
 		}
 
-		f, _, err := logfile.OpenRegular(cfg.Path)
+		f, info, err := logfile.OpenRegular(path)
 		if err != nil {
 			yield(Record{}, err)
 			return
 		}
 		defer f.Close()
 
-		srcIDStr, err := logfile.SourceID(cfg.Path)
+		if cfg.Offset > info.Size() {
+			yield(Record{}, fmt.Errorf("%w: offset %d exceeds file size %d", ErrInvalidOffset, cfg.Offset, info.Size()))
+			return
+		}
+
+		srcIDStr, err := logfile.SourceID(path)
 		if err != nil {
 			yield(Record{}, err)
 			return
@@ -88,7 +102,7 @@ func ReadFile(ctx context.Context, cfg ReadFileConfig) iter.Seq2[Record, error] 
 				Message:    message,
 				Raw:        rawStr,
 				SourceID:   srcID,
-				Path:       cfg.Path,
+				Path:       path,
 				Offset:     offset,
 				NextOffset: nextOffset,
 				Line:       lineNum,

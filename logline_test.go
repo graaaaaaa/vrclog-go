@@ -200,12 +200,13 @@ func TestRecordID_Determinism(t *testing.T) {
 
 	id1 := computeRecordID(srcID, 0, rawHash)
 	id2 := computeRecordID(srcID, 0, rawHash)
+	const want = RecordID("2fadb25b35e3b9220419a474bc23e23e201a37c05f4da2a1154725bdf10ed7d4")
 
 	if id1 != id2 {
 		t.Errorf("RecordID not deterministic: %q != %q", id1, id2)
 	}
-	if id1 == "" {
-		t.Error("RecordID is empty")
+	if id1 != want {
+		t.Errorf("RecordID = %q, want %q", id1, want)
 	}
 }
 

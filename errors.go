@@ -12,4 +12,5 @@ var (
 	ErrEmptyAdapterID      = errors.New("adapter ID must not be empty")
 	ErrDuplicateAdapterID  = errors.New("duplicate adapter ID")
 	ErrInvalidAdapterID    = errors.New("invalid adapter ID")
+	ErrInvalidOffset       = errors.New("invalid offset")
 )

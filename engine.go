@@ -40,6 +40,8 @@ func NewEngine(adapters ...Adapter) (*Engine, error) {
 	return &Engine{adapters: copied}, nil
 }
 
+// Process is NOT safe for concurrent calls from multiple goroutines;
+// callers must serialize calls (e.g. via a single range-loop over iter.Seq2).
 func (e *Engine) Process(record Record) Result {
 	var result Result
 	ref := RecordRef{

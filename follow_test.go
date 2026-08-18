@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const testPollInterval = 20 * time.Millisecond
+const testPollInterval = MinPollInterval
 
 func logLine(ts string, msg string) string {
 	return fmt.Sprintf("%s Log        -  %s\n", ts, msg)
@@ -222,6 +222,40 @@ func TestFollow_CursorMissing(t *testing.T) {
 	}
 }
 
+func TestFollow_CursorOffsetBeyondFileSize(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLogFile(t, dir, "output_log_2024-01-01_00-00-00.txt",
+		logLine("2024.01.01 00:00:01", "line"))
+
+	var rec Record
+	for r, err := range ReadFile(context.Background(), ReadFileConfig{Path: path}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec = r
+		break
+	}
+
+	cursor := rec.Cursor()
+	cursor.Offset += 100
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	records, errs := collectRecords(t, ctx, FollowConfig{
+		Directory:    dir,
+		Cursor:       &cursor,
+		PollInterval: testPollInterval,
+	}, 1)
+
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
+	}
+	if len(errs) != 1 || !errors.Is(errs[0], ErrInvalidOffset) {
+		t.Fatalf("expected ErrInvalidOffset, got %v", errs)
+	}
+}
+
 func TestFollow_AppendNewLines(t *testing.T) {
 	dir := t.TempDir()
 	path := writeLogFile(t, dir, "output_log_2024-01-01_00-00-00.txt",
@@ -420,6 +454,26 @@ func TestFollow_NegativePollInterval(t *testing.T) {
 
 	if gotErr == nil {
 		t.Fatal("expected error for negative poll interval")
+	}
+}
+
+func TestFollow_PollIntervalBelowMinimum(t *testing.T) {
+	dir := t.TempDir()
+
+	ctx := context.Background()
+	var gotErr error
+	for _, err := range Follow(ctx, FollowConfig{
+		Directory:    dir,
+		PollInterval: MinPollInterval - time.Nanosecond,
+	}) {
+		if err != nil {
+			gotErr = err
+			break
+		}
+	}
+
+	if gotErr == nil {
+		t.Fatal("expected error for poll interval below minimum")
 	}
 }
 
