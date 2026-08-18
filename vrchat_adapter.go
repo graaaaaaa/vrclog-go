@@ -1,8 +1,10 @@
 package vrclog
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 var (
@@ -219,6 +221,16 @@ func (a vrchatAdapter) Decode(record Record) ([]Emission, error) {
 	return nil, nil
 }
 
-func isHTTPURL(url string) bool {
-	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+func isHTTPURL(rawURL string) bool {
+	if strings.ContainsFunc(rawURL, unicode.IsControl) {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	return u.Host != ""
 }
