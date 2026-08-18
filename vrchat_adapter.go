@@ -222,7 +222,9 @@ func (a vrchatAdapter) Decode(record Record) ([]Emission, error) {
 }
 
 func isHTTPURL(rawURL string) bool {
-	if strings.ContainsFunc(rawURL, unicode.IsControl) {
+	if strings.ContainsFunc(rawURL, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.IsSpace(r)
+	}) {
 		return false
 	}
 	u, err := url.Parse(rawURL)
@@ -230,6 +232,9 @@ func isHTTPURL(rawURL string) bool {
 		return false
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	if u.User != nil {
 		return false
 	}
 	return u.Host != ""
