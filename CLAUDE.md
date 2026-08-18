@@ -65,6 +65,47 @@
 
 ## 9) Repository Conventions
 
-- Python 環境は `uv` を利用（`pip` 直接利用はしない）
 - 既存ルールは `.claude/rules/` を最優先で参照
 - 研究メモは `.claude/docs/research/` に蓄積（テンプレート配布時は空を維持）
+
+---
+
+## 10) Project Architecture
+
+### Pipeline
+
+```text
+VRChat output_log_*.txt -> Read/Follow -> Record -> Engine (Adapters) -> Event -> Observation
+```
+
+- **Record**: A single physical log line with timestamp, level, message, raw text, SHA-256 based `RecordID`, file position (`Offset`/`NextOffset`/`Line`), and `SourceID`.
+- **Adapter**: Stateless, pure function that inspects a `Record` and returns zero or more `Emission`s (each a `RuleID` + `Event`). Implements `ID() AdapterID` and `Decode(Record) ([]Emission, error)`.
+- **Engine**: Holds registered `Adapter`s. `Process(Record) Result` runs **all** adapters for every record (no first-match), produces `Observation`s and `Diagnostic`s.
+- **Event**: Sealed interface with 7 canonical concrete types: `PlayerJoined`, `PlayerLeft`, `WorldEnteringObserved`, `WorldJoiningObserved`, `ResourceURLObserved`, `ResourceResolved`, `MediaErrorObserved`.
+- **Observation**: Event + provenance (`AdapterID`, `RuleID`, `RecordRef`). Deterministic `ObservationID` derived from SHA-256.
+- **Cursor**: File position bookmark (`SourceID`, `Path`, `Offset`, `Line`) — not time-based.
+
+### Key Invariants
+
+- No backward-compatibility shims, aliases, or re-exports for removed concepts.
+- No Parser, ParserChain, YAML patterns, or WASM plugins — these are permanently removed.
+- `Adapter` is pure and stateless — `Decode` must be record-local with no side effects.
+- All registered Adapters always run for every Record (no first-match short-circuit).
+- `Engine.Process` is single-goroutine — NOT safe for concurrent calls.
+- Canonical Events are sealed — community/external code cannot implement the `Event` interface (unexported `isEvent()` method).
+- Observation JSON may contain sensitive VRChat data: player display names, `usr_*` IDs, world/instance IDs (which may embed owner `usr_*` via `~private(usr_xxx)`), and media URLs with signed auth tokens. Treat it with the same care as raw log files.
+- Zero external dependencies — standard library only.
+
+### Dependency Direction
+
+- `vrclog-go` (this repo) must never import `vrclog-adapters` or `vrclog-companion`.
+- Community/vendor-specific adapter logic (YamaPlayer, iwaSync3, etc.) never belongs in this repo's built-in adapter.
+
+### Test Commands
+
+```bash
+go test ./...
+go test -race ./...
+go vet ./...
+GOOS=windows GOARCH=amd64 go build ./...
+```
