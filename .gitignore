@@ -62,3 +62,6 @@ __debug_bin*
 
 # Development plans (internal)
 /plan/
+
+# Real VRChat output logs may contain PII, UUIDs, and signed URLs
+/output_log_*.txt
