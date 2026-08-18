@@ -340,6 +340,10 @@ func TestLineReader_OversizedLine(t *testing.T) {
 	if line != 2 {
 		t.Errorf("next line number = %d, want 2", line)
 	}
+	expectedFinalOffset := expectedNextOffset + int64(len("next line\n"))
+	if nextOffset != expectedFinalOffset {
+		t.Errorf("next line nextOffset = %d, want %d", nextOffset, expectedFinalOffset)
+	}
 }
 
 func TestLineReader_InvalidUTF8(t *testing.T) {
