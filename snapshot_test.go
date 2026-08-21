@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -233,6 +234,9 @@ func TestLogSnapshot_ReusesDirectoryNormalization(t *testing.T) {
 }
 
 func TestLogSnapshot_StrictDiscoveryPropagatesErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits behave differently on windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("skipping permission test when running as root")
 	}

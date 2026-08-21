@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -272,6 +273,9 @@ func TestListLogFilesStrict_SkipsNonRegular(t *testing.T) {
 }
 
 func TestListLogFilesStrict_PropagatesPermissionError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits behave differently on windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("skipping permission test when running as root")
 	}
